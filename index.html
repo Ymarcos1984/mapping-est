@@ -144,7 +144,7 @@
       <div class="loadgrid">
         <div><div class="drop" id="dropZone">
           <div class="big">📄 Elegir archivo</div><div class="sub">.txt · .csv · .pdf<br>(o arrastra aquí)</div>
-          <input type="file" id="fileInput" accept=".txt,.csv,.pdf,.prn,.text,text/plain,application/pdf" class="hidden" multiple>
+          <input type="file" id="fileInput" accept=".txt,.csv,.pdf,.prn,.md,.text,text/plain,text/markdown,application/pdf" class="hidden" multiple>
         </div></div>
         <div><textarea id="pasteBox" placeholder="…o pega aquí el texto del reporte o del loop map"></textarea>
           <div class="row" style="margin-top:8px;">
@@ -216,6 +216,13 @@ function digits(s){return (s==null?'':''+s).replace(/\D/g,'');}
 
 /* ===== detección de formato ===== */
 function detectFormat(text){
+  if(/proviene de|##\s*Inventario|mapping_dispositivos/i.test(text)) return 'mdmap';
+  if(/Base\/Personality/i.test(text) && /Device Address/i.test(text)) return 'convreport';
+  if(/Signature Barcode Worksheet/i.test(text)) return 'est4report';
+  if(/Detector Serial Number Worksheet/i.test(text)) return 'est2report';
+  if(/Signature Series Barcode Report/i.test(text)) return 'qsreport';
+  if(/Loop Controller/i.test(text) && /Device Address->/i.test(text)) return 'est4map';
+  if(/º\d+ºº\d+ºº/.test(text) || /«\d+»«\d+»«/.test(text)) return 'est2map';
   if(/Signature Detectors\/Modules|Device Address[\s\S]*Serial Number|Barcode\s*\n\s*Number/i.test(text)) return 'report';
   var treeHits=(text.match(/\[S\d+\]\s+D\d+/g)||[]).length; if(treeHits>=3) return 'tree';
   // .prn EST3: dispositivo por línea, con etiqueta [L# y varios =..= en la misma línea
@@ -319,6 +326,120 @@ function parsePrn(text){
   return devs;
 }
 
+/* ===== REPORTE EST4 ("Signature Barcode Worksheet") ===== */
+function parseEst4Report(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var out=[], buf=[];
+  function flush(addr){ var mi=-1,i;
+    for(i=0;i<buf.length;i++){ var c=buf[i].split('\t').map(function(t){return t.trim();}); if(c[1]&&/^SIGA/i.test(c[1])){mi=i;break;} }
+    if(mi<0){buf=[];return;}
+    var head=buf[mi].split('\t').map(function(t){return t.trim();});
+    var label=head[0]||'', model=head[1]||'', loc=head[2]||'', type='', serial='';
+    for(var j=mi+1;j<buf.length;j++){ var sm=buf[j].match(/\b(\d{10})\b/); var cc=buf[j].split('\t').map(function(t){return t.trim();});
+      if(sm){ type=cc[0]||''; serial=sm[1]; break; }
+      else { var t=cc.filter(Boolean).join(' '); if(t)loc+=(loc?' ':'')+t; } }
+    out.push({key:addr.slice(-4),address:addr,label:label,model:model,location:loc.trim(),type:type,serial:serial}); buf=[];
+  }
+  lines.forEach(function(l){ if(!l.trim())return; var m=l.replace(/\s/g,'').match(/^(\d{3}:\d{3}:\d{4})$/); if(m){flush(m[1]);} else buf.push(l); });
+  return out;
+}
+
+/* ===== REPORTE EST2 ("Detector Serial Number Worksheet") ===== */
+function parseEst2Report(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var out=[], cur=null;
+  function isGlyph(s){ return /["'`\]\[<>]/.test(s) && !/\s/.test(s.trim()); }
+  lines.forEach(function(l){ if(!l.trim())return;
+    var c=l.split('\t').map(function(t){return t.trim();}).filter(function(t){return t.length;});
+    var modelIdx=-1,i; for(i=0;i<c.length;i++){ if(/^SIGA/i.test(c[i])){modelIdx=i;break;} }
+    var am=l.match(/\b\d{4}\b/g); var addr=am?am[am.length-1]:'';
+    if(modelIdx>=1 && addr && c[0] && !/^SIGA/i.test(c[0]) && !/^(Label|Message|Model|Base|Device|Serial|Barcode|Number|Project|Detector|MCM|SDC)/i.test(c[0])){
+      cur={label:c[0], location:(c[modelIdx-1]||''), model:c[modelIdx]||'', type:c[modelIdx]||'', address:addr, key:addr.slice(-4).padStart(4,'0'), serial:''};
+      out.push(cur);
+    } else if(cur && c.length===1 && !isGlyph(c[0]) && /[A-Za-z]/.test(c[0]) && /\s/.test(c[0]) && !/^(Page|Project)/i.test(c[0])){
+      cur.location+=(cur.location?' ':'')+c[0];
+    }
+  });
+  return out;
+}
+
+/* ===== REPORTE QuickStart ("Signature Series Barcode Report") ===== */
+function parseQsReport(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var out=[], curType='';
+  lines.forEach(function(l){ if(!l.trim())return;
+    if(/Detectors for/i.test(l))curType='Detector'; else if(/Modules for/i.test(l))curType='Module';
+    var c=l.split('\t').map(function(t){return t.trim();}).filter(function(t){return t.length;});
+    var ser=l.match(/\b(\d{10})\b/);
+    if(ser && c.length>=4 && /^\d+$/.test(c[0]) && /^\d+$/.test(c[1]) && /^\d+$/.test(c[2])){
+      var serial=ser[1], serCell=-1,i; for(i=0;i<c.length;i++){ if(c[i]===serial){serCell=i;break;} }
+      var loc=c.slice(3, serCell>3?serCell:c.length).filter(function(x){return x!==serial;}).join(' ');
+      out.push({key:(''+c[2]).replace(/\D/g,'').slice(-4).padStart(4,'0'), address:'P'+c[0]+'C'+c[1]+':'+c[2], label:'', location:loc.trim(), type:curType, serial:serial});
+    }
+  });
+  return out;
+}
+
+/* ===== MAPPING EST4 ("Loop Controller") — orden + dirección + serie ===== */
+function parseEst4Map(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var L=[],R=[];
+  lines.forEach(function(l){ if(!l.trim())return; var c=l.split('\t'); if(c.length>=2){L.push(c[0]);R.push(c.slice(1).join(' '));} else L.push(c[0]); });
+  function devsFrom(arr){ var t=arr.join('\n'), re=/Label->\s*([\s\S]*?)Model\s*->\s*([\s\S]*?)Device Address->\s*(\d+)[\s\S]*?Serial Number->\s*(\d+)/g, m, o=[];
+    while((m=re.exec(t))!==null){ o.push({label:m[1].replace(/\s+/g,' ').trim(), model:m[2].replace(/Base Type->[\s\S]*/,'').replace(/\s+/g,' ').trim(), addr:m[3], serial:m[4]}); } return o; }
+  var ld=devsFrom(L), rd=devsFrom(R), devs=[], order=0, n=Math.max(ld.length,rd.length);
+  for(var i=0;i<n;i++){ [ld[i],rd[i]].forEach(function(d){ if(!d)return; var key=(''+d.addr).replace(/\D/g,'').slice(-4).padStart(4,'0');
+    devs.push({key:key,addrNum:d.addr,mserial:d.serial,mtype:d.model,label:d.label,type:'',order:order++,depth:0,parent:null,children:0}); }); }
+  return devs;
+}
+
+/* ===== MAPPING EST2 (formato ºaddrººserieººmodeloº«addr»«serie»«label») ===== */
+function parseEst2Map(text){
+  var devs=[], order=0, re=/º(\d+)ºº(\d+)ºº([^º]+)º/g, m;
+  while((m=re.exec(text))!==null){ var key=(''+m[1]).replace(/\D/g,'').slice(-4).padStart(4,'0');
+    devs.push({key:key,addrNum:m[1],mserial:m[2],mtype:m[3].trim(),label:'',type:'',order:order++,depth:0,parent:null,children:0}); }
+  var labels={}, re2=/«(\d+)»«\d+»«([^»]+)»/g, mm;
+  while((mm=re2.exec(text))!==null){ labels[(''+mm[1]).slice(-4).padStart(4,'0')]=mm[2]; }
+  devs.forEach(function(d){ if(labels[d.key])d.label=labels[d.key]; });
+  return devs;
+}
+
+/* ===== REPORTE CONVERTIDO (tabla: Device Address / Serial / Label / Device Type / Model / Base/Personality / Message / Loop) ===== */
+function parseConvReport(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var out=[];
+  lines.forEach(function(l){ if(!l.trim())return; var c=l.split('\t').map(function(t){return t.trim();}).filter(function(t){return t.length;});
+    if(c.length<5)return; if(!/^\d{4,8}$/.test(c[0]))return; var ser=l.match(/\b(\d{10})\b/); if(!ser)return;
+    var address=c[0], serial=ser[1], label=c[2]||'', type=c[3]||'', model=c[4]||'';
+    var last=c[c.length-1], loc='';
+    if(/^\d{1,2}$/.test(last)) loc=c[c.length-2]||''; else loc=c[c.length-1]||'';
+    if(!loc || loc===model || loc===serial || /^SIGA/i.test(loc) || /^\d+$/.test(loc)){ loc='';
+      c.slice(4).forEach(function(x){ if(x!==model&&x!==serial&&!/^\d{1,3}$/.test(x)&&/[A-Za-z]/.test(x)&&x.length>loc.length)loc=x; }); }
+    out.push({key:address.replace(/\D/g,'').slice(-4).padStart(4,'0'), address:address, label:label, type:type, model:model, location:loc, serial:serial});
+  });
+  return out;
+}
+
+/* ===== MAPPING .md (conversor): tabla ## Inventario con Proviene de -> topología/T-tap ===== */
+function parseMdMapping(text){
+  var lines=text.replace(/\r/g,'').split('\n'); var rows=[];
+  lines.forEach(function(l){ if(!/^\s*\|/.test(l))return; var c=l.split('|').map(function(x){return x.trim();});
+    if(c.length<9)return; if(/^Ramal$/i.test(c[1])||/^:?-+:?$/.test(c[2])||!/^Ramal/i.test(c[1]))return;
+    rows.push({ramal:c[1],pos:c[2],prov:c[3],dir:c[4],etiqueta:c[5],modelo:c[6],serial:c[8]}); });
+  var devs=[], order=0, addrIdx={}, serIdx={};
+  function nd(v){return !v||/no determinado/i.test(v);}
+  rows.forEach(function(r){
+    var dirOk = r.dir && !nd(r.dir) && !/^0+$/.test(r.dir.replace(/\D/g,''));
+    var serial = nd(r.serial)?'':r.serial.replace(/\D/g,'');
+    var key = dirOk ? r.dir.replace(/\D/g,'').slice(-4).padStart(4,'0') : (serial?('S'+serial):('r'+order));
+    var d={key:key, addrNum:dirOk?r.dir:'', mserial:serial, mtype:nd(r.modelo)?'':r.modelo, label:nd(r.etiqueta)?'':r.etiqueta, provRaw:r.prov, type:'', order:order++, depth:0, parent:null, children:0};
+    devs.push(d); if(dirOk && !addrIdx[key])addrIdx[key]=d; if(serial && !serIdx[serial])serIdx[serial]=d;
+  });
+  devs.forEach(function(d){ var pr=d.provRaw||'', pk=null;
+    var mA=pr.match(/direcci[oó]n\s+(\d+)/i), mS=pr.match(/device serial\s+(\d+)/i);
+    if(mA){ var a=(''+mA[1]).replace(/\D/g,'').slice(-4).padStart(4,'0'); if(addrIdx[a] && addrIdx[a]!==d)pk=a; }
+    else if(mS){ if(serIdx[mS[1]] && serIdx[mS[1]]!==d)pk=serIdx[mS[1]].key; }
+    d.parent=pk; });
+  var byKey={}; devs.forEach(function(d){byKey[d.key]=d;});
+  devs.forEach(function(d){ if(d.parent && byKey[d.parent])byKey[d.parent].children++; });
+  return devs;
+}
+
 /* ===== merge ===== */
 function upsertReport(rows){
   rows.forEach(function(r){ var k=r.key||('L'+(r.label||Math.random())); var d=state.dev[k]||{key:k};
@@ -331,10 +452,12 @@ function upsertMapping(devs, kind){
   state.hasMapping=true;
   devs.forEach(function(md){ var k=md.key; if(!k)return; var d=state.dev[k]||{key:k};
     d.mapOrder=md.order!=null?md.order:(md.seq||0); d.pos=(md.order!=null?md.order:0)+1; d.depth=md.depth||0; d.parent=md.parent||null; d.children=md.children||0;
-    d.type=d.type||md.type; d.mtype=md.type||d.mtype; d.mserial=md.serial||d.mserial; d.dnum=md.dnum||d.dnum; d.seq=md.seq!=null?md.seq:d.seq; d.inMap=true;
+    d.type=d.type||md.type; d.mtype=md.mtype||md.type||d.mtype; d.mserial=md.mserial||md.serial||d.mserial; d.dnum=md.dnum||d.dnum; d.seq=md.seq!=null?md.seq:d.seq; d.inMap=true;
+    if(md.label && !d.label)d.label=md.label;
     if(md.children>1) state.hasTtap=true;
     state.dev[k]=d; });
-  state.sources.push(kind==='tree'?'loop map HDT (txt)':(kind==='prn'?'loop map EST3 (txt)':'mapping gráfico')); rebuildOrder();
+  var lbl=({tree:'loop map HDT (txt)',prn:'loop map EST3 (txt)',est4:'mapping EST4',est2:'mapping EST2',mdmap:'mapping .md (T-tap)'})[kind]||'mapping gráfico';
+  state.sources.push(lbl); rebuildOrder();
 }
 function rebuildOrder(){
   var arr=Object.keys(state.dev).map(function(k){return state.dev[k];});
@@ -379,6 +502,20 @@ function ingest(text,src){
     upsertMapping(t,'tree'); afterLoad(src,'Loop Map HDT (txt)', t.length+' dispositivos, T-tap ✓'); }
   else if(fmt==='prn'){ var pr=parsePrn(text); if(!pr.length){alert('No pude leer el loop map EST3.');return;}
     upsertMapping(pr,'prn'); afterLoad(src,'Loop Map EST3 (texto)', pr.length+' dispositivos (orden, sin T-tap)'); }
+  else if(fmt==='est4report'){ var e4=parseEst4Report(text); if(!e4.length){alert('No pude leer el reporte EST4.');return;}
+    upsertReport(e4); afterLoad(src,'Reporte EST4', e4.length+' dispositivos'); }
+  else if(fmt==='est2report'){ var e2=parseEst2Report(text); if(!e2.length){alert('No pude leer el reporte EST2.');return;}
+    upsertReport(e2); afterLoad(src,'Reporte EST2', e2.length+' dispositivos'); }
+  else if(fmt==='qsreport'){ var qs=parseQsReport(text); if(!qs.length){alert('No pude leer el reporte QuickStart.');return;}
+    upsertReport(qs); afterLoad(src,'Reporte QuickStart', qs.length+' dispositivos'); }
+  else if(fmt==='est4map'){ var m4=parseEst4Map(text); if(!m4.length){alert('No pude leer el mapping EST4.');return;}
+    upsertMapping(m4,'est4'); afterLoad(src,'Mapping EST4', m4.length+' dispositivos (orden, sin T-tap)'); }
+  else if(fmt==='est2map'){ var m2=parseEst2Map(text); if(!m2.length){alert('No pude leer el mapping EST2.');return;}
+    upsertMapping(m2,'est2'); afterLoad(src,'Mapping EST2', m2.length+' dispositivos (orden, sin T-tap)'); }
+  else if(fmt==='convreport'){ var cr=parseConvReport(text); if(!cr.length){alert('No pude leer el reporte convertido.');return;}
+    upsertReport(cr); afterLoad(src,'Reporte (convertido)', cr.length+' dispositivos'); }
+  else if(fmt==='mdmap'){ var mm=parseMdMapping(text); if(!mm.length){alert('No pude leer el mapping .md.');return;}
+    upsertMapping(mm,'mdmap'); afterLoad(src,'Mapping .md', mm.length+' dispositivos'+(state.hasTtap?', T-tap ✓':'')); }
   else if(fmt==='canvamap'){ var c=parseCanvaMap(text); if(!c.length){alert('No pude leer el mapping gráfico.');return;}
     upsertMapping(c,'canva'); afterLoad(src,'Mapping gráfico', c.length+' dispositivos (orden)'); }
   else { startGeneric(text,src); }
