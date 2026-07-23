@@ -179,11 +179,14 @@
     <div class="progress"><i id="progBar"></i></div>
     <div class="filters">
       <input class="grow" id="search" placeholder="🔎 dirección, ubicación, tipo, serie, nota…" oninput="render()">
+      <select id="fLoop" class="hidden" onchange="setLoop()"></select>
       <select id="fTipo" onchange="render()"><option value="">Todos los tipos</option></select>
     </div>
     <div class="toggles">
       <label id="mapOnlyWrap" class="hidden"><input type="checkbox" id="mapOnly" onchange="render()"> Solo los del mapping</label>
       <label id="ttapWrap" class="hidden"><input type="checkbox" id="onlyTtap" onchange="render()"> Solo T-taps</label>
+      <label id="noLocWrap" class="hidden"><input type="checkbox" id="onlyNoLoc" onchange="render()"> Sin ubicación</label>
+      <label><input type="checkbox" id="sortAddr" onchange="render()"> Orden por dirección</label>
       <span id="countLine"></span>
     </div>
     <div class="list" id="list"></div>
@@ -200,7 +203,23 @@
 var STATUSES=[{key:'ok',label:'OK'},{key:'falla',label:'Falla'},{key:'pend',label:'Pendiente'},{key:'aisl',label:'Aislado'}];
 var STORE_KEY='mappingTerrenoEST_v2';
 var state={ meta:{project:'',site:'',tech:'',date:'',notes:''}, dev:{}, order:[], ann:{}, hasMapping:false, hasTtap:false, sources:[] };
-var pending=null, visibleLimit=250, menuOpen=false, curStatusFilter='total';
+var pending=null, visibleLimit=250, menuOpen=false, curStatusFilter='total', curLoop=0;
+/* loop por dirección: 1-250=loop1, 251-500=loop2, etc. (250 disp/loop, estándar SIGA) */
+function loopOf(key){ if(!/^\d{4}$/.test(''+key))return 0; var n=parseInt(key,10); return n>0?Math.ceil(n/250):0; }
+function buildLoopFilter(autoSet){
+  var loops={}; state.order.forEach(function(k){ var L=loopOf(k); if(L)loops[L]=(loops[L]||0)+1; });
+  var arr=Object.keys(loops).map(Number).sort(function(a,b){return a-b;}); var sel=$('fLoop');
+  if(arr.length<=1){ sel.classList.add('hidden'); curLoop=0; return; }
+  var prev=curLoop;
+  if(autoSet && state.hasMapping){ var ml={},best=0,bl=0;
+    state.order.forEach(function(k){ if(state.dev[k].inMap){ var L=loopOf(k); if(L){ml[L]=(ml[L]||0)+1; if(ml[L]>best){best=ml[L];bl=L;}} } });
+    if(bl)curLoop=bl;
+  }
+  sel.innerHTML='<option value="0">Todos los loops</option>'+arr.map(function(L){ return '<option value="'+L+'">Loop '+L+' ('+((L-1)*250+1)+'–'+(L*250)+') · '+loops[L]+'</option>'; }).join('');
+  sel.value=curLoop; sel.classList.remove('hidden');
+  if(autoSet && curLoop && curLoop!==prev) setTimeout(function(){toast('Mostrando solo Loop '+curLoop+' (del mapping)');},400);
+}
+function setLoop(){ curLoop=parseInt($('fLoop').value,10)||0; visibleLimit=250; render(); }
 
 function $(id){return document.getElementById(id);}
 function esc(s){s=(s==null?'':''+s);return s.replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -525,9 +544,10 @@ function ingest(text,src){
 }
 function afterLoad(src,kind,detail){
   if(!state.meta.date)state.meta.date=todayISO();
-  buildFilters(); persist(); toast(kind+': '+detail+' ✓');
+  buildFilters(); buildLoopFilter(true); persist(); toast(kind+': '+detail+' ✓');
   showScreen('scMain'); visibleLimit=250; curStatusFilter='total'; render(); updateProjLine(); renderLoadedTags();
   $('mapOnlyWrap').classList.toggle('hidden',!state.hasMapping);
+  $('noLocWrap').classList.toggle('hidden',!state.hasMapping);
   $('ttapWrap').classList.toggle('hidden',!state.hasTtap);
 }
 function renderLoadedTags(){ var el=$('loadedTags'); if(!el)return;
@@ -583,7 +603,7 @@ function cancelMapping(){pending=null;showScreen(Object.keys(state.dev).length?'
 
 /* ===== vista ===== */
 function counts(){ var c={total:0,ok:0,falla:0,pend:0,aisl:0,none:0,marked:0,ttap:0};
-  state.order.forEach(function(k){ c.total++; var a=state.ann[k]; var s=a&&a.status; if(s)c[s]++;else c.none++;
+  state.order.forEach(function(k){ if(curLoop && loopOf(k)!==curLoop)return; c.total++; var a=state.ann[k]; var s=a&&a.status; if(s)c[s]++;else c.none++;
     if(a&&(a.status||(a.note&&a.note.trim())))c.marked++; var d=state.dev[k]; if(d&&d.children>1)c.ttap++; }); return c; }
 function renderSummary(){ var c=counts(),af=curStatusFilter;
   function chip(key,label,cls){var active=af===key;return '<div class="chip '+cls+(active?' active':'')+'" onclick="setStatusFilter(\''+key+'\')"><div class="n">'+c[key]+'</div><div class="l">'+label+'</div></div>';}
@@ -594,14 +614,21 @@ function buildFilters(){ var tipos={}; state.order.forEach(function(k){var d=sta
   var sel=$('fTipo'),cur=sel.value;sel.innerHTML='<option value="">Todos los tipos</option>';Object.keys(tipos).sort().forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});sel.value=cur; }
 function devType(d){return d.type||d.rtype||d.mtype||'';}
 function filtered(){ var q=($('search').value||'').toLowerCase().trim(); var ft=$('fTipo').value, fs=curStatusFilter;
-  var mapOnly=$('mapOnly').checked, onlyT=$('onlyTtap').checked;
+  var mapOnly=$('mapOnly').checked, onlyT=$('onlyTtap').checked, onlyNoLoc=$('onlyNoLoc').checked;
   return state.order.filter(function(k){ var d=state.dev[k],a=state.ann[k]||{};
+    if(curLoop && loopOf(k)!==curLoop)return false;
     if(mapOnly && !d.inMap)return false; if(onlyT && !(d.children>1) && !d.ttapGroup)return false;
+    if(onlyNoLoc && (d.location&&d.location.trim()))return false;
     if(fs!=='total'){ if(fs==='none'){if(a.status)return false;} else if(a.status!==fs)return false; }
     if(ft && devType(d)!==ft)return false;
     if(q){ var hay=((d.address||'')+' '+(d.location||'')+' '+(d.label||'')+' '+devType(d)+' '+(d.serial||'')+' '+(a.note||'')).toLowerCase(); if(hay.indexOf(q)<0)return false; }
     return true; }); }
-function render(){ renderSummary(); var arr=filtered(); $('emptyMsg').classList.toggle('hidden',arr.length>0);
+function render(){ renderSummary(); var arr=filtered();
+  if($('sortAddr').checked){ arr=arr.slice().sort(function(a,b){ var da=state.dev[a],db=state.dev[b];
+    var na=parseInt((''+((da&&da.address)||a)).replace(/\D/g,''),10); if(isNaN(na))na=1e12;
+    var nb=parseInt((''+((db&&db.address)||b)).replace(/\D/g,''),10); if(isNaN(nb))nb=1e12;
+    return na-nb; }); }
+  $('emptyMsg').classList.toggle('hidden',arr.length>0);
   var show=arr.slice(0,visibleLimit),html='';
   show.forEach(function(k){ var d=state.dev[k],a=state.ann[k]||{},st=a.status,cls=st||'';
     html+='<div class="dev '+cls+(d.inMap?'':' nomap')+'" onclick="openDev(\''+jsstr(k)+'\')">';
@@ -665,6 +692,7 @@ function openExport(){menuClose();
   var h='<div class="backdrop" onclick="if(event.target===this)closeSheet3()"><div class="sheet"><h3>Exportar PDF</h3><div class="sub">Se genera el PDF y se descarga a tu dispositivo.</div>'+
     '<div style="margin:10px 0;"><label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="radio" name="es" value="marked" checked style="width:auto"> Solo con estado o nota</label>'+
     '<label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="radio" name="es" value="all" style="width:auto"> Todos</label></div>'+
+    '<div style="border-top:1px solid var(--line);margin:8px 0;padding-top:8px;"><label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="checkbox" id="pdfByType" style="width:auto"> Resumen por tipo al final</label></div>'+
     '<div class="sheetfoot"><button class="btn-primary" style="flex:1" onclick="doExport()">Generar</button><button class="btn-ghost" onclick="closeSheet3()">Cancelar</button></div></div></div>';
   var host=document.createElement('div');host.id='sheetHost3';host.innerHTML=h;document.body.appendChild(host); }
 function closeSheet3(){var h=$('sheetHost3');if(h)h.remove();}
@@ -672,10 +700,11 @@ var JSPDF_B64="LyoqIEBsaWNlbnNlCiAqCiAqIGpzUERGIC0gUERGIERvY3VtZW50IGNyZWF0aW9uI
 function ensureJsPdf(){ if(_jspdfReady)return;
   var s1=document.createElement('script');s1.text=_b64ToStr(JSPDF_B64);document.head.appendChild(s1);
   var s2=document.createElement('script');s2.text=_b64ToStr(JSPDF_AT_B64);document.head.appendChild(s2); _jspdfReady=true; }
-function doExport(){ var scope='marked',r=document.getElementsByName('es');for(var i=0;i<r.length;i++)if(r[i].checked)scope=r[i].value; closeSheet3();
-  try{ generatePdf(scope); }
+function doExport(){ var scope='marked',r=document.getElementsByName('es');for(var i=0;i<r.length;i++)if(r[i].checked)scope=r[i].value;
+  var byType=$('pdfByType')&&$('pdfByType').checked; closeSheet3();
+  try{ generatePdf(scope,byType); }
   catch(e){ try{ buildReport(scope); var ot=document.title; document.title=(state.meta.project||'Mapping')+' - reporte'; setTimeout(function(){window.print();document.title=ot;},60); }catch(_){ alert('No se pudo generar el PDF: '+e); } } }
-function generatePdf(scope){
+function generatePdf(scope,byType){
   ensureJsPdf();
   var jsPDFc=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF; if(!jsPDFc) throw 'jsPDF no disponible';
   var doc=new jsPDFc({orientation:'landscape',unit:'pt',format:'a4'});
@@ -685,18 +714,26 @@ function generatePdf(scope){
   var meta=[]; if(m.project)meta.push('Proyecto: '+m.project); if(m.site)meta.push('Sitio: '+m.site); if(m.tech)meta.push('Tecnico: '+m.tech); if(m.date)meta.push('Fecha: '+m.date);
   var y=58; if(meta.length){doc.text(meta.join('     '),40,y);y+=14;} if(m.notes){doc.text('Notas: '+m.notes,40,y);y+=14;}
   doc.text('Resumen: Total '+c.total+'  OK '+c.ok+'  Falla '+c.falla+'  Pendiente '+c.pend+'  Aislado '+c.aisl+'  Marcados '+c.marked, 40, y);
-  var keys=state.order.filter(function(k){ if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
+  var keys=state.order.filter(function(k){ if(curLoop && loopOf(k)!==curLoop)return false; if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
   var body=keys.map(function(k){ var d=state.dev[k],a=state.ann[k]||{}; var st=a.status?STATUSES.filter(function(s){return s.key===a.status;})[0].label:'';
     var par=(d.parent&&state.dev[d.parent])?(state.dev[d.parent].address||d.parent):''; var tt=d.ttapNum?('T#'+d.ttapNum):(d.ttapGroup?('#'+d.ttapGroup):'');
     return [d.pos!=null?d.pos:'', d.address||k, d.location||d.label||'', devType(d), tt, par, st, a.note||'']; });
   doc.autoTable({ head:[['#','Direccion','Ubicacion','Tipo','T-tap','Sale de','Estado','Nota']], body:body.length?body:[['','','Sin puntos','','','','','']],
     startY:y+10, styles:{fontSize:7,cellPadding:2,overflow:'linebreak'}, headStyles:{fillColor:[15,23,42]},
     columnStyles:{0:{cellWidth:22},1:{cellWidth:72},3:{cellWidth:52},4:{cellWidth:34},6:{cellWidth:52}} });
+  if(byType){ var tc={},tot=0; keys.forEach(function(k){ var t=devType(state.dev[k])||'(sin tipo)'; tc[t]=(tc[t]||0)+1; tot++; });
+    var trows=Object.keys(tc).sort(function(a,b){return tc[b]-tc[a];}).map(function(t){return [t,String(tc[t])];});
+    trows.push(['TOTAL',String(tot)]);
+    var sy=(doc.lastAutoTable?doc.lastAutoTable.finalY:y)+22;
+    if(sy>500){ doc.addPage(); sy=40; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Resumen por tipo',40,sy);
+    doc.autoTable({ head:[['Tipo','Cantidad']], body:trows, startY:sy+8,
+      styles:{fontSize:8,cellPadding:3}, headStyles:{fillColor:[15,23,42]}, columnStyles:{1:{cellWidth:60,halign:'right'}}, tableWidth:240 }); }
   doc.save((m.project||'mapping').replace(/[^\w\-]+/g,'_')+'_reporte_'+todayISO()+'.pdf');
   toast('PDF descargado ✓');
 }
 function buildReport(scope){ var m=state.meta,c=counts();
-  var keys=state.order.filter(function(k){ if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
+  var keys=state.order.filter(function(k){ if(curLoop && loopOf(k)!==curLoop)return false; if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
   var rows=keys.map(function(k){ var d=state.dev[k],a=state.ann[k]||{}; var st=a.status?STATUSES.filter(function(s){return s.key===a.status;})[0].label:'';
     var par=(d.parent&&state.dev[d.parent])?(state.dev[d.parent].address||d.parent):'';
     var tt=d.ttapNum?('T#'+d.ttapNum):(d.ttapGroup?('#'+d.ttapGroup):'');
@@ -716,13 +753,14 @@ function saveSession(){var blob=new Blob([JSON.stringify(state,null,2)],{type:'a
 $('sessFile').addEventListener('change',function(e){var f=e.target.files[0];if(!f)return;var fr=new FileReader();fr.onload=function(){try{applyState(JSON.parse(fr.result));toast('Sesión cargada ✓');}catch(err){alert('Sesión no válida.');}};fr.readAsText(f);e.target.value='';});
 function applyState(o){ state.meta=o.meta||state.meta; state.dev=o.dev||{}; state.order=o.order||[]; state.ann=o.ann||{};
   state.hasMapping=!!o.hasMapping; state.hasTtap=!!o.hasTtap; state.sources=o.sources||[];
-  if(!state.order.length)rebuildOrder(); else computeTtaps(); persist(); buildFilters(); updateProjLine();
-  $('mapOnlyWrap').classList.toggle('hidden',!state.hasMapping); $('ttapWrap').classList.toggle('hidden',!state.hasTtap);
+  if(!state.order.length)rebuildOrder(); else computeTtaps(); persist(); buildFilters(); buildLoopFilter(false); updateProjLine();
+  $('mapOnlyWrap').classList.toggle('hidden',!state.hasMapping); $('noLocWrap').classList.toggle('hidden',!state.hasMapping); $('ttapWrap').classList.toggle('hidden',!state.hasTtap);
   showScreen('scMain'); visibleLimit=250; render(); renderLoadedTags(); }
 function resumeSession(){var s=loadLocal();if(s)applyState(s);}
 function dismissResume(){$('resumeBox').classList.add('hidden');}
 function resetAll(){if(!confirm('¿Borrar todo de esta sesión? (no afecta tus archivos)'))return;
   state={meta:{project:'',site:'',tech:'',date:'',notes:''},dev:{},order:[],ann:{},hasMapping:false,hasTtap:false,sources:[]};
+  curLoop=0; $('fLoop').classList.add('hidden');
   try{localStorage.removeItem(STORE_KEY);}catch(e){}renderLoadedTags();showScreen('scLoad');toast('Reiniciado');}
 
 /* ===== menú / init ===== */
