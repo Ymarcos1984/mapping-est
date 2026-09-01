@@ -86,6 +86,23 @@
   .tdot{font-size:10px;font-weight:800;color:#fff;background:var(--ttap);border-radius:5px;padding:1px 6px;margin-left:6px;}
   .dev .note{margin-top:8px;font-size:13px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:7px 9px;white-space:pre-wrap;}
   .dev.nomap{opacity:.86;}
+  /* coincidencia de busqueda: se resalta SIN sacarla del orden del mapping */
+  .dev.hit{outline:3px solid #f59e0b;outline-offset:1px;background:var(--card2);}
+  .dev.hit.cur{outline-color:#38bdf8;outline-width:4px;
+    box-shadow:0 0 0 5px rgba(56,189,248,.22);}
+  .dev .hitno{position:absolute;top:9px;right:10px;background:#f59e0b;color:#3a2606;
+    font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 7px;}
+  .dev.hit .st{right:66px;}   /* correr el estado para no pisar el nº de coincidencia */
+  .dev.hit.cur .hitno{background:#38bdf8;color:#04263a;}
+  .dev.dim{opacity:.62;}
+  .hitbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;
+    background:var(--card);border:1px solid var(--line);border-left:5px solid #f59e0b;
+    border-radius:10px;padding:9px 11px;font-size:13.5px;font-weight:700;
+    position:sticky;top:var(--hdrH,60px);z-index:12;}
+  .hitbar .lbl{flex:1;}
+  .hitbar button{padding:8px 13px;font-size:15px;font-weight:800;min-width:46px;}
+  .hitbar .x{background:transparent;border-color:transparent;color:var(--muted);
+    font-weight:600;min-width:auto;padding:8px 6px;}
   .morewrap{text-align:center;margin:16px 0;} .empty{text-align:center;color:var(--muted);padding:26px 10px;}
 
   .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;}
@@ -178,7 +195,7 @@
     <div class="summary" id="summary"></div>
     <div class="progress"><i id="progBar"></i></div>
     <div class="filters">
-      <input class="grow" id="search" placeholder="🔎 dirección, ubicación, tipo, serie, nota…" oninput="render()">
+      <input class="grow" id="search" placeholder="🔎 dirección, ubicación, tipo, serie, nota…" oninput="onSearchInput()">
       <select id="fLoop" class="hidden" onchange="setLoop()"></select>
       <select id="fTipo" onchange="render()"><option value="">Todos los tipos</option></select>
     </div>
@@ -187,8 +204,10 @@
       <label id="ttapWrap" class="hidden"><input type="checkbox" id="onlyTtap" onchange="render()"> Solo T-taps</label>
       <label id="noLocWrap" class="hidden"><input type="checkbox" id="onlyNoLoc" onchange="render()"> Sin ubicación</label>
       <label><input type="checkbox" id="sortAddr" onchange="render()"> Orden por dirección</label>
+      <label><input type="checkbox" id="onlyMatch" onchange="onSearchInput()"> Solo coincidencias</label>
       <span id="countLine"></span>
     </div>
+    <div id="hitBar" class="hitbar hidden"></div>
     <div class="list" id="list"></div>
     <div class="morewrap"><button id="btnMore" class="btn-ghost hidden" onclick="showMore()">Mostrar más</button></div>
     <div class="empty hidden" id="emptyMsg">Sin resultados.</div>
@@ -204,6 +223,7 @@ var STATUSES=[{key:'ok',label:'OK'},{key:'falla',label:'Falla'},{key:'pend',labe
 var STORE_KEY='mappingTerrenoEST_v2';
 var state={ meta:{project:'',site:'',tech:'',date:'',notes:''}, dev:{}, order:[], ann:{}, hasMapping:false, hasTtap:false, sources:[] };
 var pending=null, visibleLimit=250, menuOpen=false, curStatusFilter='total', curLoop=0;
+var searchHits=[], hitIdx=0;
 /* loop por dirección: 1-250=loop1, 251-500=loop2, etc. (250 disp/loop, estándar SIGA) */
 function loopOf(key){ if(!/^\d{4}$/.test(''+key))return 0; var n=parseInt(key,10); return n>0?Math.ceil(n/250):0; }
 function buildLoopFilter(autoSet){
@@ -613,15 +633,33 @@ function setStatusFilter(k){curStatusFilter=(curStatusFilter===k?'total':k);visi
 function buildFilters(){ var tipos={}; state.order.forEach(function(k){var d=state.dev[k];var t=d.type||d.rtype||d.mtype;if(t)tipos[t]=1;});
   var sel=$('fTipo'),cur=sel.value;sel.innerHTML='<option value="">Todos los tipos</option>';Object.keys(tipos).sort().forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});sel.value=cur; }
 function devType(d){return d.type||d.rtype||d.mtype||'';}
-function filtered(){ var q=($('search').value||'').toLowerCase().trim(); var ft=$('fTipo').value, fs=curStatusFilter;
+/* ¿este device coincide con lo buscado? (separado del filtro para poder
+   RESALTAR sin sacarlo de la lista y perder el orden del mapping) */
+function _p3(n){var s=''+n;while(s.length<3)s='0'+s;return s;}
+function matchesQ(k,q){
+  if(!q)return false;
+  var d=state.dev[k],a=state.ann[k]||{};
+  var partes=[d.address||'',d.location||'',d.label||'',devType(d),
+    d.serial||'',d.mserial||'',a.note||'',k];
+  /* tal como viene impreso en el mapping: D00136 y [S139] */
+  if(d.dnum)partes.push('d'+d.dnum,d.dnum);
+  if(d.seq!=null)partes.push('s'+_p3(d.seq),''+d.seq);
+  if(d.pos!=null)partes.push('#'+d.pos);
+  return partes.join(' ').toLowerCase().indexOf(q)>=0;
+}
+function searchQ(){ return ($('search').value||'').toLowerCase().trim(); }
+function onlyMatchMode(){ var e=$('onlyMatch'); return !!(e&&e.checked); }
+
+function filtered(){ var q=searchQ(); var ft=$('fTipo').value, fs=curStatusFilter;
   var mapOnly=$('mapOnly').checked, onlyT=$('onlyTtap').checked, onlyNoLoc=$('onlyNoLoc').checked;
+  var recorta=onlyMatchMode();     // solo en este modo la busqueda recorta la lista
   return state.order.filter(function(k){ var d=state.dev[k],a=state.ann[k]||{};
     if(curLoop && loopOf(k)!==curLoop)return false;
     if(mapOnly && !d.inMap)return false; if(onlyT && !(d.children>1) && !d.ttapGroup)return false;
     if(onlyNoLoc && (d.location&&d.location.trim()))return false;
     if(fs!=='total'){ if(fs==='none'){if(a.status)return false;} else if(a.status!==fs)return false; }
     if(ft && devType(d)!==ft)return false;
-    if(q){ var hay=((d.address||'')+' '+(d.location||'')+' '+(d.label||'')+' '+devType(d)+' '+(d.serial||'')+' '+(a.note||'')).toLowerCase(); if(hay.indexOf(q)<0)return false; }
+    if(q && recorta && !matchesQ(k,q))return false;
     return true; }); }
 function render(){ renderSummary(); var arr=filtered();
   if($('sortAddr').checked){ arr=arr.slice().sort(function(a,b){ var da=state.dev[a],db=state.dev[b];
@@ -629,9 +667,28 @@ function render(){ renderSummary(); var arr=filtered();
     var nb=parseInt((''+((db&&db.address)||b)).replace(/\D/g,''),10); if(isNaN(nb))nb=1e12;
     return na-nb; }); }
   $('emptyMsg').classList.toggle('hidden',arr.length>0);
+
+  /* coincidencias: se marcan DENTRO del orden del mapping, no se recorta */
+  var q=searchQ(); searchHits=[];
+  if(q && !onlyMatchMode()){
+    for(var i=0;i<arr.length;i++) if(matchesQ(arr[i],q)) searchHits.push(i);
+  }
+  if(hitIdx>=searchHits.length) hitIdx=0;
+  /* asegurar que la coincidencia actual esté dibujada (la lista pagina de 250) */
+  if(searchHits.length){
+    var need=searchHits[hitIdx]+40;
+    if(need>visibleLimit) visibleLimit=Math.ceil(need/250)*250;
+  }
+  var hitPos={}; searchHits.forEach(function(idx,n){hitPos[idx]=n;});
+  renderHitBar(arr);
+
   var show=arr.slice(0,visibleLimit),html='';
-  show.forEach(function(k){ var d=state.dev[k],a=state.ann[k]||{},st=a.status,cls=st||'';
-    html+='<div class="dev '+cls+(d.inMap?'':' nomap')+'" onclick="openDev(\''+jsstr(k)+'\')">';
+  show.forEach(function(k,idx){ var d=state.dev[k],a=state.ann[k]||{},st=a.status,cls=st||'';
+    var esHit=(idx in hitPos), esCur=esHit&&hitPos[idx]===hitIdx;
+    cls+=(esHit?' hit'+(esCur?' cur':''):(searchHits.length?' dim':''));
+    html+='<div class="dev '+cls+(d.inMap?'':' nomap')+'"'+(esHit?' data-hit="'+hitPos[idx]+'"':'')+
+      ' onclick="openDev(\''+jsstr(k)+'\')">';
+    if(esHit)html+='<span class="hitno">'+(hitPos[idx]+1)+'/'+searchHits.length+'</span>';
     if(st){var lab=STATUSES.filter(function(s){return s.key===st;})[0].label;html+='<span class="st '+st+'">'+lab+'</span>';}
     html+='<div class="top">';
     if(d.inMap && d.pos!=null)html+='<span class="seq">#'+d.pos+'</span>';
@@ -647,8 +704,54 @@ function render(){ renderSummary(); var arr=filtered();
     if(a.note&&a.note.trim())html+='<div class="note">📝 '+esc(a.note)+'</div>';
     html+='</div>'; });
   $('list').innerHTML=html; $('btnMore').classList.toggle('hidden',arr.length<=visibleLimit); $('btnMore').textContent='Mostrar más ('+(arr.length-visibleLimit)+')';
-  $('countLine').textContent=arr.length+' mostrados'; }
+  $('countLine').textContent=searchHits.length
+    ? (searchHits.length+' coincidencia'+(searchHits.length>1?'s':'')+' de '+arr.length)
+    : (arr.length+' mostrados'); }
 function showMore(){visibleLimit+=250;render();}
+
+/* ===== busqueda que CONSERVA el orden del mapping ===== */
+function renderHitBar(arr){
+  var bar=$('hitBar'); if(!bar)return;
+  var q=searchQ();
+  if(!q || onlyMatchMode() || !searchHits.length){
+    bar.classList.add('hidden');
+    if(q && !onlyMatchMode() && !searchHits.length){
+      bar.classList.remove('hidden');
+      bar.innerHTML='<span class="lbl">Sin coincidencias para «'+esc(q)+'»</span>'+
+        '<button class="x" onclick="clearSearch()">Limpiar</button>';
+    }
+    return;
+  }
+  bar.classList.remove('hidden');
+  /* el encabezado cambia de alto (a veces ocupa dos filas): medirlo */
+  var hd=document.querySelector('header.appbar');
+  if(hd)document.documentElement.style.setProperty('--hdrH',hd.offsetHeight+'px');
+  var k=arr[searchHits[hitIdx]], d=state.dev[k]||{};
+  var pos=(d.inMap&&d.pos!=null)?('#'+d.pos+' del mapping'):'fuera del mapping';
+  bar.innerHTML='<span class="lbl">'+(hitIdx+1)+' de '+searchHits.length+
+    ' · <span class="mono">'+esc(d.address||k)+'</span> · '+esc(pos)+'</span>'+
+    '<button onclick="gotoHit(-1)" aria-label="anterior">◀</button>'+
+    '<button onclick="gotoHit(1)" aria-label="siguiente">▶</button>'+
+    '<button class="x" onclick="clearSearch()">✕</button>';
+}
+function gotoHit(delta){
+  if(!searchHits.length)return;
+  hitIdx=(hitIdx+delta+searchHits.length)%searchHits.length;
+  render(); scrollToHit();
+}
+function scrollToHit(){
+  var el=document.querySelector('.dev.hit.cur');
+  if(el&&el.scrollIntoView)el.scrollIntoView({block:'center',behavior:'smooth'});
+}
+function clearSearch(){
+  $('search').value=''; hitIdx=0; searchHits=[]; visibleLimit=250; render();
+}
+var _sTimer=null;
+function onSearchInput(){
+  hitIdx=0; visibleLimit=250; render();
+  if(_sTimer)clearTimeout(_sTimer);
+  _sTimer=setTimeout(scrollToHit,220);   // llevar la vista a la 1ª coincidencia
+}
 
 /* ===== editor ===== */
 var curKey=null;
