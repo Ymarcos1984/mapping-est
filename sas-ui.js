@@ -5,6 +5,68 @@
   var legacyReport = upsertReport, legacyAfterLoad = afterLoad, legacyRender = render, legacyProjectLine = updateProjLine;
   var queue = Promise.resolve(), queueEpoch = 0;
 
+
+  function sameEst4Diagram(devices,rows) {
+    const byKey=new Map(rows.map(r=>[r.key,r]));let serial=0,label=0;
+    devices.forEach(d=>{const r=byKey.get(d.key);if(!r)return;
+      if(d.mserial&&(r.serial===d.mserial||r.mserial===d.mserial))serial++;
+      if(d.label&&d.label===r.label&&d.mtype===(r.model||r.mtype))label++;
+    });
+    return serial>=Math.min(2,devices.length,rows.length)||label>=Math.min(3,devices.length,rows.length);
+  }
+  function enrichEst4(next,rows) {
+    const indexed=new Map(rows.map(r=>[r.key,r]));
+    Object.keys(next.dev).forEach(k=>{const d=next.dev[k];if(d.est4ReportOnly&&!d.inMap)delete next.dev[k];});
+    Object.values(next.dev).filter(d=>!d.sasId&&d.inMap).forEach(d=>{
+      d.reportMissing=!indexed.has(d.key);
+      if(d.reportMissing){d.serial=d.mserial||'';d.serialSource='mapping';d.reportSerial='';d.serialConflict='';d.mappingReview='Presente en el Mapping; ausente del reporte cargado. Serial solo como referencia del Mapping.';}
+    });
+    rows.forEach(r=>{
+      const d=next.dev[r.key]||{key:r.key};
+      Object.assign(d,{address:r.address,label:r.label,model:r.model,location:r.location,type:r.type,rtype:r.type,
+        serial:r.serial,reportSerial:r.serial,serialSource:'report',reportAddress:r.address,reportLocation:r.location,
+        sourceFamily:'est4',reportMissing:false,est4ReportOnly:!d.inMap});
+      d.serialConflict=d.mserial&&r.serial&&d.mserial!==r.serial?'Serial actualizado con el reporte. El original del Mapping se conserva.':'';
+      d.mappingReview=[d.est4Disconnected?'Sin conexión dibujada al resto del Mapping; revisar en terreno.':'',r.serialOmitted?'El reporte no imprime serial para este circuito multidirección.':''].filter(Boolean).join(' ');
+      next.dev[r.key]=d;
+    });
+    next.est4ReportRows=rows;
+  }
+  function commitEst4Mapping(mapping) {
+    const previous=state,next=JSON.parse(JSON.stringify(state));
+    const legacy=Object.values(next.dev).filter(d=>!d.sasId&&d.inMap);
+    if(legacy.length&&!sameEst4Diagram(mapping.devices,legacy))throw new Error('La sesión contiene otro Mapping. Abre una sesión nueva para este diagrama EST4.');
+    if((next.est4ReportRows||[]).length&&!sameEst4Diagram(mapping.devices,next.est4ReportRows))throw new Error('El Mapping no coincide con el reporte EST4 cargado. No se han mezclado.');
+    legacy.forEach(d=>{d.inMap=false;d.parent=null;d.children=0;d.pos=0;d.mapOrder=100000;});
+    mapping.devices.forEach(md=>{
+      const d=next.dev[md.key]||{key:md.key};
+      Object.assign(d,{mapOrder:md.order,pos:md.order+1,parent:md.parent,children:md.children,depth:md.depth,inMap:true,
+        mtype:md.mtype,mserial:md.mserial,label:md.label,sourceFamily:'est4',est4ReportOnly:false,
+        est4Disconnected:!md.parent&&md.order!==0});
+      if(d.serialSource!=='report'){d.serial=md.mserial;d.serialSource='mapping';}
+      d.mappingReview=d.est4Disconnected?'Sin conexión dibujada al resto del Mapping; revisar en terreno.':'';
+      next.dev[md.key]=d;
+    });
+    next.est4Mapping={id:mapping.id,filename:mapping.filename,fingerprint:mapping.fingerprint,devices:mapping.devices,
+      count:mapping.devices.length,edges:mapping.edges.length,taps:mapping.taps,roots:mapping.roots};
+    if((next.est4ReportRows||[]).length)enrichEst4(next,next.est4ReportRows);
+    next.hasMapping=Object.values(next.dev).some(d=>d.inMap);next.hasTtap=Object.values(next.dev).some(d=>d.children>1);
+    next.sources=[...new Set(next.sources.filter(s=>s!=='mapping EST4').concat(['Mapping EST4 verificado · '+mapping.filename]))];
+    state=next;
+    try{rebuildOrder();localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){state=previous;throw e;}
+    afterLoad(mapping.filename,'Mapping EST4',mapping.devices.length+' dispositivos · '+mapping.edges.length+' conexiones · '+mapping.taps+' T-tap');
+  }
+  function commitEst4Report(rows,info) {
+    const previous=state,next=JSON.parse(JSON.stringify(state)),scope=rows[0].address.slice(0,7)+':'+rows[0].slc;
+    if(next.est4ReportScope&&next.est4ReportScope!==scope)throw new Error('El reporte pertenece a otro controlador/SLC. Abre una sesión nueva para ese loop.');
+    if(Object.values(next.dev).some(d=>!d.sasId&&/^\d{3}:\d{3}:\d{4}$/.test(d.address||'')&&d.address.slice(0,7)!==rows[0].address.slice(0,7)))throw new Error('La sesión contiene otro controlador EST4.');
+    if(next.est4Mapping&&!sameEst4Diagram(next.est4Mapping.devices,rows))throw new Error('El reporte no coincide con el Mapping EST4 cargado. No se han mezclado.');
+    next.est4ReportScope=scope;next.est4ReportInfo=info;enrichEst4(next,rows);
+    next.sources=[...new Set(next.sources.concat(['Reporte EST4 · '+info.filename]))];state=next;
+    try{rebuildOrder();localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){state=previous;throw e;}
+    afterLoad(info.filename,'Reporte EST4',rows.length+' direcciones · '+rows.filter(r=>r.serial).length+' seriales impresos');
+  }
+
   function sources() { return state.sasSources || []; }
   function visibleSources() {
     return sources().filter(s => !curLoop || Object.values(state.dev).some(d => d.sasId === s.id && d.scope === curLoop));
@@ -23,6 +85,9 @@
     if (state.sasReportNotice && (!curLoop || (state.sasReportSourceIds || []).some(id => list.some(s => s.id === id)))) messages.push(state.sasReportNotice);
     if (state.est3ReportNotice && (!curLoop || list.some(s => s.family === 'est3'))) messages.push(Est3Report.noticeFor(state, curLoop));
     if ((state.est2Reports||[]).length && (!curLoop || list.some(s=>s.family==='est2'))) messages.push(Est2Report.noticeFor(state,curLoop));
+    if(state.est4Mapping){const m=state.est4Mapping;messages.push('Mapping EST4: '+m.count+' dispositivos, '+m.edges+' conexiones, '+m.taps+' T-tap.'+(m.roots.length>1?' Sin conexión dibujada al resto del mapa: '+m.roots.slice(1).join(', ')+'.':''));}
+    if(state.est4ReportInfo){const r=state.est4ReportInfo;messages.push('Reporte EST4: '+r.filename+(r.version?' · versión '+r.version:'')+' · '+state.est4ReportRows.length+' direcciones · '+state.est4ReportRows.filter(d=>d.serial).length+' seriales impresos.');}
+    if (!state.est4Mapping && state.sources.includes('mapping EST4')) messages.push('Mapping EST4: el orden y los T-taps de este lector PDF no están verificados. Consulta el diagrama original para seguir el cableado.');
     notice(messages.join('\n'));
     $('btnSasMd').classList.toggle('hidden', !sources().length);
   }
@@ -105,10 +170,21 @@
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (error) { state = previous; throw new Error('No se pudo guardar el Mapping. La sesión anterior se conserva: ' + error.message); }
     curLoop = 0;
-    afterLoad(source.filename, source.family === 'io' ? 'Mapping SAS' : 'Mapping '+source.family.toUpperCase()+' '+(source.version==='est2-sdu'?'SDU':/-md$/.test(source.version)?'MD':'PDF'), devices.length + ' dispositivos · ' + source.loops.length + ' grupos');
+    afterLoad(source.filename, source.family === 'io' ? 'Mapping SAS' : 'Mapping '+source.family.toUpperCase()+' '+(/-sdu$/.test(source.version)?'SDU':/-md$/.test(source.version)?'MD':'PDF'), devices.length + ' dispositivos · ' + source.loops.length + ' grupos');
   };
 
   function validateSources(saved) {
+    if(saved&&saved.est4ReportRows!=null){
+      if(!Array.isArray(saved.est4ReportRows))throw new Error('Reporte EST4 guardado no válido.');
+      if(saved.est4ReportRows.length)Est4Report.validate(saved.est4ReportRows);
+    }
+    if(saved&&saved.est4ReportInfo&&(typeof saved.est4ReportInfo.filename!=='string'||typeof saved.est4ReportInfo.version!=='string'))throw new Error('Identificación del reporte EST4 no válida.');
+    if(saved&&saved.est4Mapping){
+      const m=saved.est4Mapping;
+      if(!Array.isArray(m.devices)||!Array.isArray(m.roots)||!Number.isSafeInteger(m.count)||m.count!==m.devices.length||typeof m.filename!=='string')throw new Error('Mapping EST4 guardado no válido.');
+      if(new Set(m.devices.map(d=>d.key)).size!==m.count||m.devices.some(d=>!/^\d{4}$/.test(d.key)||!Number.isSafeInteger(d.order)||d.order<0||d.order>=m.count||d.parent!==null&&!/^\d{4}$/.test(d.parent)))throw new Error('Direcciones u orden EST4 guardados no válidos.');
+      m.devices.forEach(d=>{const row=saved.dev&&saved.dev[d.key];if(!row||row.parent!==d.parent||row.mserial!==d.mserial||row.mapOrder!==d.order)throw new Error('La sesión no conserva las conexiones u orden del Mapping EST4.');});
+    }
     Est3Report.validate(saved && saved.est3Reports || []);
     Est2Report.validate(saved && saved.est2Reports || []);
     if (!saved || !saved.dev || !Array.isArray(saved.order) || typeof saved.dev !== 'object' || Array.isArray(saved.dev)) throw new Error('Sesión no válida.');
@@ -148,8 +224,13 @@
     saved = JSON.parse(JSON.stringify(saved));
     Est3Report.enrich(saved);
     Est2Report.enrich(saved);
+    if((saved.est4ReportRows||[]).length)enrichEst4(saved,saved.est4ReportRows);
     saved.order = [];
     state.sasSources = saved.sasSources || [];
+    state.est4ReportScope = saved.est4ReportScope || "";
+    state.est4Mapping = saved.est4Mapping || null;
+    state.est4ReportRows = saved.est4ReportRows || [];
+    state.est4ReportInfo = saved.est4ReportInfo || null;
     state.sasReportNotice = saved.sasReportNotice || '';
     state.sasReportSourceIds = saved.sasReportSourceIds || [];
     state.est3Reports = saved.est3Reports || [];
@@ -263,6 +344,7 @@
     try {
       var firstPage = await doc.getPage(1), firstContent = await firstPage.getTextContent();
       var firstText = firstContent.items.map(it => it.str).join(' ');
+      if(/Loop Controller/i.test(firstText)&&/Device Address/i.test(firstText))return {est4Mapping:await Est4Mapping.read(doc,lib,id,filename,(n,total)=>{$('fileLoadStatus').textContent='Mapping EST4: página '+n+'/'+total+'…';})};
       if (Est2Mapping.tileOf(firstPage,firstContent) && /º|«|SIGA-/.test(firstText)) {
         return { mapping: await Est2Mapping.read(doc,lib,id,filename,(n,total)=>{$('fileLoadStatus').textContent='Mapping EST2: página '+n+'/'+total+'…';}) };
       }
@@ -272,14 +354,17 @@
       if (doc.numPages > 200) throw new Error('El PDF supera 200 páginas.');
       var isEst3Report = /Signature Detectors\/Modules Barcode Worksheet/.test(firstText) && /EST3 System/.test(firstText), reportColumns = {};
       var isEst2Report = Est2Report.isReport(firstContent);
+      var isEst4Report = /Signature Barcode Worksheet/i.test(firstText), est4Rows = [], est4Columns = {};
       for (var i = 1; i <= doc.numPages; i++) {
         var page = await doc.getPage(i), content = await page.getTextContent();
+        if(isEst4Report){est4Rows.push(...Est4Report.readPage(page,content,est4Columns,i));continue;}
         if(isEst2Report){est2Rows.push(...Est2Report.readPage(content,i));continue;}
         var pageText = isEst3Report ? Est3Report.pageText(content, reportColumns) : reconstructPage(content); texts.push(pageText); text += pageText + '\n';
         var rows = ioReportPage(content);
         if (rows) { ioRows.push(...rows); ioPages++; }
       }
       if (ioPages && ioPages !== doc.numPages) throw new Error('El reporte mezcla páginas de formatos distintos. No se ha incorporado.');
+      if (isEst4Report) { Est4Report.validate(est4Rows); return {est4Rows,est4ReportInfo:{filename,version:(/Version\s*:\s*([\d.]+)/i.exec(firstText)||[])[1]||""}}; }
       if (isEst3Report) return { est3Report: Est3Report.read(texts, id, filename) };
       if(isEst2Report){var report={id,filename,rows:est2Rows};Est2Report.validate([report]);return {est2Report:report};}
       return { text, ioRows: ioPages ? ioRows : null };
@@ -293,11 +378,11 @@
       // iOS may disable unknown extensions in a filtered picker. Select freely,
       // then validate here; never send a binary project to the generic text reader.
       if (/\.xdu$/i.test(file.name)) throw new Error('La lectura directa XDU todavía no está incorporada. Carga su Mapping en MD.');
-      if (!/\.(sdu|sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SDU EST2, SAS, PDF, MD, TXT, CSV o PRN.');
+      if (!/\.(sdu|sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SDU EST2/EST3, SAS, PDF, MD, TXT, CSV o PRN.');
       if (file.size > 20 * 1024 * 1024) throw new Error('El archivo supera el límite de 20 MB.');
       $('fileLoadStatus').textContent = 'Leyendo ' + file.name + '…';
       if (/\.sdu$/i.test(file.name)) {
-        var sduSource=await Est2Sdu.read(await file.arrayBuffer(),file.name);
+        var sduSource=await Est3Sdu.readAny(await file.arrayBuffer(),file.name);
         if(epoch===queueEpoch)commitSas(sduSource);
       } else if (/\.sas$/i.test(file.name)) {
         var source = await SasMapping.read(await file.arrayBuffer(), file.name);
@@ -306,6 +391,8 @@
         var result = await readPdf(await file.arrayBuffer(), file.name);
         if (epoch !== queueEpoch) return;
         if (result.mapping) commitSas(result.mapping);
+        else if(result.est4Mapping)commitEst4Mapping(result.est4Mapping);
+        else if(result.est4Rows)commitEst4Report(result.est4Rows,result.est4ReportInfo);
         else if(result.est2Report){
           var previousEst2=state;state=JSON.parse(JSON.stringify(state));
           try{

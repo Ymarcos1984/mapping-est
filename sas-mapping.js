@@ -144,8 +144,8 @@
         result.push({
           key: key(source, loop, address), sasId: source.id, scope: scope(source, loop), scopeLabel: source.obra + ' · ' + loop.title,
           panel: loop.panel, loopnum: loop.loopnum, address: String(address), label: d.label, location: d.location, sourceLocation: d.location || '', projectOnly: !!d.projectOnly,
-          model: d.model, mtype: d.model, serial: source.family === 'est3' ? '' : d.serial, mserial: d.serial,
-          sourceFamily: source.family, serialPartial: source.family === 'est3', type: d.type || '', pers: d.base || '',
+          model: d.model, mtype: d.model, serial: source.family === 'est3' && source.version!=='est3-sdu' ? '' : d.serial, mserial: d.serial,
+          sourceFamily: source.family, sourceVersion: source.version, serialPartial: source.family === 'est3' && source.version!=='est3-sdu', type: d.type || '', pers: d.base || '',
           importedReportSerial: d.reportSerial || '',
           mappingFieldReview: (d.review || []).join(', '), rawMappingAddress: d.rawAddress || '',
           parent: d.next && d.next !== address && tree.byAddress.has(d.next) ? key(source, loop, d.next) : null,
@@ -163,11 +163,11 @@
 
   function markdown(source, loop, records) {
     const tree = loopTree(loop);
-    const project=source.version==='est2-sdu';
+    const project=/-sdu$/.test(source.version);
     const vector = /^est[23]$/.test(source.family)&&!project;
-    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: ' + (vector ? 'MAPPING ' + source.family.toUpperCase() + ' (conexiones del dibujo vectorial)' : 'PROYECTO '+(project?'EST2':'IO')+' (mapa leído de los datos, sin OCR)'),
-      'mapping_variante: ' + (vector ? source.family+'-vector' : project?'proyecto-est2':'proyecto-io'), 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
-      ...(loop.identityKnown===false ? ['identidad: controlador sin numero declarado en el Mapping'] : ['panel: '+loop.panel,'loop: '+loop.loopnum]), 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v9.2 EST2 SDU', '---', '',
+    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: ' + (vector ? 'MAPPING ' + source.family.toUpperCase() + ' (conexiones del dibujo vectorial)' : 'PROYECTO '+source.family.toUpperCase()+' (mapa leído de los datos, sin OCR)'),
+      'mapping_variante: ' + (vector ? source.family+'-vector' : 'proyecto-'+source.family), 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
+      ...(loop.identityKnown===false ? ['identidad: controlador sin numero declarado en el Mapping'] : ['panel: '+loop.panel,'loop: '+loop.loopnum]), 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v9.3 EST2/EST3 SDU', '---', '',
       '# ' + cell(source.obra), '', '## ' + loop.title, ''];
     source.warnings.filter(w => !records || !/últimos 4 dígitos/.test(w)).forEach(w => lines.push('> REVISAR: ' + cell(w), ''));
     if (records) lines.push('El orden y las conexiones provienen del Mapping. La columna Serial usa el reporte cuando está disponible; Serial Mapping conserva la referencia original.', '');
@@ -180,7 +180,7 @@
       const branch = isChild && tree.children.get(d.next).length === 1 ? branchByAddress.get(d.next) : ++branchCount;
       branchByAddress.set(address, branch);
       const position = (posByBranch.get(branch) || 0) + 1; posByBranch.set(branch, position);
-      const parent = isChild ? 'dirección ' + d.next : d.projectOnly||d.review&&d.review.includes('padre sin dirección en SATODA') ? 'sin dato de mapa' : loop.title;
+      const parent = isChild ? 'dirección ' + d.next : d.projectOnly||d.review&&d.review.some(r=>/^padre /.test(r)) ? 'sin dato de mapa' : loop.title;
       const current = records && records[key(source, loop, address)];
       const serial = current && current.serialSource==='report' ? current.serial||'no indicado en el reporte' : current&&current.serial||d.serial||'no determinado';
       lines.push('| ' + ['Ramal ' + branch, position, parent, d.addr, d.label || 'no determinado', d.model || 'no determinado', d.base || '', serial, d.page || '', current && current.location || d.location, d.serial].map(cell).join(' | ') + ' |');

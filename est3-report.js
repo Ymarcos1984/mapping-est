@@ -100,18 +100,19 @@
     });
     Object.keys(state.dev).forEach(k => { if (state.dev[k].est3ReportOnly) delete state.dev[k]; });
     Object.values(state.dev).filter(d => d.sourceFamily === 'est3').forEach(d => {
-      d.serial = d.importedReportSerial || ''; d.serialPartial = !d.serial; d.serialConflict = '';
-      d.serialSource = d.serial ? 'report' : 'mapping';
+      d.serial = d.importedReportSerial || (d.sourceVersion==='est3-sdu'?d.mserial:''); d.serialPartial = !d.serial; d.serialConflict = '';
+      d.serialSource = d.importedReportSerial ? 'report' : 'mapping';
       d.reportMissing = false;
-      d.location = ''; d.reportLocation = ''; d.reportAddress = ''; d.reportSerial = '';
+      d.location = d.sourceLocation || ''; d.reportLocation = ''; d.reportAddress = ''; d.reportSerial = '';
     });
     const assignments = new Map(), pending = [], coveredScopes = new Set();
     for (const row of currentRows) {
       const possible = sources.filter(s => norm(s.projectUnspecified ? s.reportProject : s.obra) === norm(row.project) && s.loops.some(lp => norm(lp.cabinet) === norm(row.cabinet) && norm(lp.controller) === norm(row.controller)));
       if (possible.length !== 1) { pending.push(row); continue; }
       const source = possible[0];
-      const loops = source.loops.filter(lp => norm(lp.cabinet) === norm(row.cabinet) && norm(lp.controller) === norm(row.controller) && lp.loopnum === row.reportLoop);
+      const loops = source.loops.filter(lp => norm(lp.cabinet) === norm(row.cabinet) && norm(lp.controller) === norm(row.controller) && lp.loopnum === row.reportLoop && (source.version!=='est3-sdu'||lp.panel===Number(row.address.slice(0,2))&&lp.controllerAddress===Number(row.address.slice(2,4))));
       if (loops.length > 1) { pending.push(row); continue; }
+      if(source.version==='est3-sdu'&&loops.length!==1){pending.push(row);continue;}
       const lp = loops[0], address = Number(row.address.slice(-4));
       const scope = lp ? SasMapping.scope(source, lp) : 'est3:' + source.id + ':report:' + encodeURIComponent(row.cabinet + '/' + row.controller + '/' + row.reportLoop);
       if(lp)coveredScopes.add(scope);
@@ -144,13 +145,13 @@
       device.reportSerial = row.serial;
     }
     state.est3PendingCount = pending.length;
-    Object.values(state.dev).filter(d=>d.inMap && coveredScopes.has(d.scope) && !d.reportSerial && !d.serialConflict).forEach(d=>{d.reportMissing=true;d.serial='';d.serialPartial=true;d.serialSource='mapping';});
+    Object.values(state.dev).filter(d=>d.inMap && coveredScopes.has(d.scope) && !d.reportSerial && !d.serialConflict).forEach(d=>{d.reportMissing=true;d.serial=d.sourceVersion==='est3-sdu'?d.mserial:'';d.serialPartial=!d.serial;d.serialSource='mapping';});
     state.est3ReportNotice = noticeFor(state, 0);
   }
   function noticeFor(state, scope) {
     if (!(state.est3Reports || []).length) return '';
     const records = Object.values(state.dev).filter(d => d.sourceFamily === 'est3' && (!scope || d.scope === scope));
-    const linked = records.filter(d => d.inMap && d.serial).length, extra = records.filter(d => d.est3ReportOnly).length;
+    const linked = records.filter(d => d.serialSource==='report' && d.serial && !d.est3ReportOnly).length, extra = records.filter(d => d.est3ReportOnly).length;
     const conflicts = records.filter(d => d.serialConflict).length;
     const missing = records.filter(d => d.reportMissing).length;
     return 'Reporte EST3: ' + linked + ' seriales completados · ' + extra + ' dispositivos solo en reporte.' +
