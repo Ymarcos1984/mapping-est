@@ -1,7 +1,7 @@
 {
-  "name": "Mapping de Terreno EST · v9.4",
+  "name": "Mapping de Terreno EST · v9.5",
   "short_name": "Mapping EST",
-  "description": "Mapping de campo con lectura directa de SDU EST2/EST3, Mapping EST2 y EST3 PDF, SAS iO y exportación MD.",
+  "description": "Mapping de terreno para EST2, EST3, EST4 e iO. QS: reporte Barcode PDF, Mapping MD revisado e inventario XDU.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

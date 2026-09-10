@@ -1,4 +1,27 @@
-# Mapping de Terreno EST — v9.4
+# Mapping de Terreno EST — v9.5
+
+## QuickStart (QS)
+
+1. Carga el Mapping en MD revisado contra el diagrama original. Debe identificar el proyecto y una única sección `Card panel:tarjeta`, conservar el orden y declarar todas sus filas. Los MD con advertencias de OCR, direcciones repetidas o conexiones incompletas se rechazan sin modificar la sesión.
+2. Carga el PDF original **Signature Series Barcode Report** más reciente. Se conserva cada equipo por panel, tarjeta y dirección; el reporte seleccionado actualiza los seriales, etiquetas y ubicaciones. También se admite cargar primero el reporte.
+3. Guarda la sesión JSON para conservar las notas y continuar después, incluso sin conexión.
+
+El XDU es opcional: su lector incorpora el inventario (direcciones, seriales, etiquetas, ubicaciones y modelos identificables de la capa leída). No importa sus conexiones ni sustituye el Mapping del terreno. Un proyecto antiguo puede contener equipos o seriales distintos del reporte. Los modelos no identificables quedan sin asignar; no se deducen del texto de la etiqueta.
+
+Los equipos presentes solo en el reporte o XDU quedan sin encadenar. Los que faltan en el reporte permanecen con aviso y serial anterior de referencia. Reimportar los documentos conserva las notas; cada tarjeta mantiene su propio reporte seleccionado. Para QS se usa un proyecto por sesión.
+
+El Mapping QS en PDF dibujado como imagen requiere conversión y revisión previa; esta versión no añade OCR en el iPhone. La lectura directa XDU se verificó con el esquema Paradox incluido en los archivos de prueba; otros esquemas se rechazan explícitamente. El reporte detallado **Signature Series Report** no forma parte del nuevo lector Barcode validado.
+
+## Flujo de las demás familias
+
+| Familia | Primero | Después |
+| --- | --- | --- |
+| iO | SAS | Reporte PDF más reciente, si procede |
+| EST2 | SDU con Mapping guardado o Mapping PDF | Reporte de seriales PDF reciente |
+| EST3 | SDU con Mapping guardado o Mapping PDF | Reporte de seriales PDF reciente |
+| EST4 | Mapping PDF exportado desde 4-CU | Reporte de seriales PDF reciente |
+
+El Mapping determina el orden y las conexiones. El reporte seleccionado determina los seriales vigentes. Para los PDF se recomienda **Exportar a PDF** desde el programa de origen.
 
 ## Carga directa EST4
 

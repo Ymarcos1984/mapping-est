@@ -4,6 +4,15 @@
   var legacyLoopOf = loopOf, legacyRebuild = rebuildOrder, legacyApply = applyState;
   var legacyReport = upsertReport, legacyAfterLoad = afterLoad, legacyRender = render, legacyProjectLine = updateProjLine;
   var queue = Promise.resolve(), queueEpoch = 0;
+  // The paste box follows the same QS validation as the file picker.
+  var legacyIngest = ingest;
+  ingest = function(text, filename) {
+    try {
+      if(/^mapping_variante:\s*quickstart-/mi.test(text))QsReader.commit('mapping',QsReader.readMd(text,filename));
+      else if(/Signature Series Barcode Report/i.test(text))QsReader.commit('report',QsReader.readTextReport(text,filename));
+      else legacyIngest(text,filename);
+    } catch(error) { alert('No se pudo incorporar '+filename+': '+error.message); }
+  };
 
 
   function sameEst4Diagram(devices,rows) {
@@ -17,7 +26,7 @@
   function enrichEst4(next,rows) {
     const indexed=new Map(rows.map(r=>[r.key,r]));
     Object.keys(next.dev).forEach(k=>{const d=next.dev[k];if(d.est4ReportOnly&&!d.inMap)delete next.dev[k];});
-    Object.values(next.dev).filter(d=>!d.sasId&&d.inMap).forEach(d=>{
+    Object.values(next.dev).filter(d=>!d.sasId&&d.sourceFamily!=='qs'&&d.inMap).forEach(d=>{
       d.reportMissing=!indexed.has(d.key);
       if(d.reportMissing){d.serial=d.mserial||'';d.serialSource='mapping';d.reportSerial='';d.serialConflict='';d.mappingReview='Presente en el Mapping; ausente del reporte cargado. Serial solo como referencia del Mapping.';}
     });
@@ -34,7 +43,7 @@
   }
   function commitEst4Mapping(mapping) {
     const previous=state,next=JSON.parse(JSON.stringify(state));
-    const legacy=Object.values(next.dev).filter(d=>!d.sasId&&d.inMap);
+    const legacy=Object.values(next.dev).filter(d=>!d.sasId&&d.sourceFamily!=='qs'&&d.inMap);
     if(legacy.length&&!sameEst4Diagram(mapping.devices,legacy))throw new Error('La sesión contiene otro Mapping. Abre una sesión nueva para este diagrama EST4.');
     if((next.est4ReportRows||[]).length&&!sameEst4Diagram(mapping.devices,next.est4ReportRows))throw new Error('El Mapping no coincide con el reporte EST4 cargado. No se han mezclado.');
     legacy.forEach(d=>{d.inMap=false;d.parent=null;d.children=0;d.pos=0;d.mapOrder=100000;});
@@ -87,6 +96,7 @@
     if ((state.est2Reports||[]).length && (!curLoop || list.some(s=>s.family==='est2'))) messages.push(Est2Report.noticeFor(state,curLoop));
     if(state.est4Mapping){const m=state.est4Mapping;messages.push('Mapping EST4: '+m.count+' dispositivos, '+m.edges+' conexiones, '+m.taps+' T-tap.'+(m.roots.length>1?' Sin conexión dibujada al resto del mapa: '+m.roots.slice(1).join(', ')+'.':''));}
     if(state.est4ReportInfo){const r=state.est4ReportInfo;messages.push('Reporte EST4: '+r.filename+(r.version?' · versión '+r.version:'')+' · '+state.est4ReportRows.length+' direcciones · '+state.est4ReportRows.filter(d=>d.serial).length+' seriales impresos.');}
+    if(state.qs) messages.push(QsReader.notice(state));
     if (!state.est4Mapping && state.sources.includes('mapping EST4')) messages.push('Mapping EST4: el orden y los T-taps de este lector PDF no están verificados. Consulta el diagrama original para seguir el cableado.');
     notice(messages.join('\n'));
     $('btnSasMd').classList.toggle('hidden', !sources().length);
@@ -125,7 +135,7 @@
   };
   setLoop = function () {
     var value = $('fLoop').value;
-    curLoop = /^(sas|est[23]):/.test(value) ? value : Number(value) || 0;
+    curLoop = /^(sas|est[23]|qs):/.test(value) ? value : Number(value) || 0;
     visibleLimit = 250; hitIdx = 0; render();
   };
   rebuildOrder = function () {
@@ -174,6 +184,7 @@
   };
 
   function validateSources(saved) {
+    QsReader.validate(saved || {});
     if(saved&&saved.est4ReportRows!=null){
       if(!Array.isArray(saved.est4ReportRows))throw new Error('Reporte EST4 guardado no válido.');
       if(saved.est4ReportRows.length)Est4Report.validate(saved.est4ReportRows);
@@ -225,8 +236,10 @@
     Est3Report.enrich(saved);
     Est2Report.enrich(saved);
     if((saved.est4ReportRows||[]).length)enrichEst4(saved,saved.est4ReportRows);
+    QsReader.rebuild(saved);
     saved.order = [];
     state.sasSources = saved.sasSources || [];
+    state.qs = saved.qs || null;
     state.est4ReportScope = saved.est4ReportScope || "";
     state.est4Mapping = saved.est4Mapping || null;
     state.est4ReportRows = saved.est4ReportRows || [];
@@ -344,6 +357,8 @@
     try {
       var firstPage = await doc.getPage(1), firstContent = await firstPage.getTextContent();
       var firstText = firstContent.items.map(it => it.str).join(' ');
+      if(/Signature Series Barcode Report/i.test(firstText))return {qsReport:await QsReader.readReport(doc,lib,filename)};
+      if(/Project\s+.+Version/i.test(firstText)&&/Card\s+\d+:\d+/i.test(firstText)&&/Column\s+\d+\s*\/\s*Row\s+\d+/i.test(firstText))throw new Error('El Mapping QS está dibujado como imagen. Carga su MD revisado; el XDU solo aporta inventario, no sustituye las conexiones del PDF.');
       if(/Loop Controller/i.test(firstText)&&/Device Address/i.test(firstText))return {est4Mapping:await Est4Mapping.read(doc,lib,id,filename,(n,total)=>{$('fileLoadStatus').textContent='Mapping EST4: página '+n+'/'+total+'…';})};
       if (Est2Mapping.tileOf(firstPage,firstContent) && /º|«|SIGA-/.test(firstText)) {
         return { mapping: await Est2Mapping.read(doc,lib,id,filename,(n,total)=>{$('fileLoadStatus').textContent='Mapping EST2: página '+n+'/'+total+'…';}) };
@@ -377,11 +392,13 @@
       if (epoch !== queueEpoch) return;
       // iOS may disable unknown extensions in a filtered picker. Select freely,
       // then validate here; never send a binary project to the generic text reader.
-      if (/\.xdu$/i.test(file.name)) throw new Error('La lectura directa XDU todavía no está incorporada. Carga su Mapping en MD.');
-      if (!/\.(sdu|sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SDU EST2/EST3, SAS, PDF, MD, TXT, CSV o PRN.');
+      if (!/\.(xdu|sdu|sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona XDU QS, SDU EST2/EST3, SAS, PDF, MD, TXT, CSV o PRN.');
       if (file.size > 20 * 1024 * 1024) throw new Error('El archivo supera el límite de 20 MB.');
       $('fileLoadStatus').textContent = 'Leyendo ' + file.name + '…';
-      if (/\.sdu$/i.test(file.name)) {
+      if (/\.xdu$/i.test(file.name)) {
+        const qsInventory=await QsReader.readXdu(await file.arrayBuffer(),file.name);
+        if(epoch===queueEpoch)QsReader.commit('inventory',qsInventory);
+      } else if (/\.sdu$/i.test(file.name)) {
         var sduSource=await Est3Sdu.readAny(await file.arrayBuffer(),file.name);
         if(epoch===queueEpoch)commitSas(sduSource);
       } else if (/\.sas$/i.test(file.name)) {
@@ -390,7 +407,8 @@
       } else if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
         var result = await readPdf(await file.arrayBuffer(), file.name);
         if (epoch !== queueEpoch) return;
-        if (result.mapping) commitSas(result.mapping);
+        if(result.qsReport)QsReader.commit('report',result.qsReport);
+        else if (result.mapping) commitSas(result.mapping);
         else if(result.est4Mapping)commitEst4Mapping(result.est4Mapping);
         else if(result.est4Rows)commitEst4Report(result.est4Rows,result.est4ReportInfo);
         else if(result.est2Report){
@@ -419,7 +437,10 @@
         } else ingest(result.text, file.name);
       } else {
         var text = await file.text();
-        if (/^mapping_variante:\s*est3-vector\s*$/m.test(text)) {
+        if (/^mapping_variante:\s*quickstart-/mi.test(text)) {
+          const qsMapping=QsReader.readMd(text,file.name);
+          if(epoch===queueEpoch)QsReader.commit('mapping',qsMapping);
+        } else if (/^mapping_variante:\s*est3-vector\s*$/m.test(text)) {
           var digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
           var id = [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, '0')).join('');
           var mdSource = Est3Mapping.readMd(text, id, file.name);
