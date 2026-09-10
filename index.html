@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<title>Mapping de Terreno · EST · v8.1 EST3</title>
+<title>Mapping de Terreno · EST · v9.2 EST2</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -157,11 +157,11 @@
       <button class="btn-ghost" onclick="dismissResume()">Ignorar</button>
     </div>
     <div class="hero">
-      <h1>Cargar reporte / mapping</h1><div class="help">Versión 8.1 · Mapping EST3 PDF + SAS iO</div>
-      <p>Para <b>iO</b>, carga el <b>SAS</b>: incluye el mapa, los T-tap, las etiquetas y los seriales. Para <b>EST3</b>, carga directamente el <b>Mapping PDF original</b>; añade el reporte de serial para completar seriales y ubicaciones. Los archivos se procesan en este dispositivo.</p>
+      <h1>Cargar reporte / mapping</h1><div class="help">Versión 9.2 · SDU EST2 + Mapping PDF + SAS iO</div>
+      <p>Para <b>EST2</b>, carga el <b>SDU</b> directamente; puedes añadir el reporte reciente para actualizar los seriales. Para <b>iO</b>, carga el <b>SAS</b>: incluye el mapa, los T-tap, las etiquetas y los seriales. Para <b>EST3</b>, carga directamente el <b>Mapping PDF original</b>; añade el reporte de serial para completar seriales y ubicaciones. Los archivos se procesan en este dispositivo.</p>
       <div class="loadgrid">
         <div><div class="drop" id="dropZone">
-          <div class="big">📄 Elegir archivo</div><div class="sub">.sas · .md · .txt · .csv · .pdf<br>(o arrastra aquí)</div>
+          <div class="big">📄 Elegir archivo</div><div class="sub">.sdu · .sas · .md · .txt · .csv · .pdf<br>(o arrastra aquí)</div>
           <input type="file" id="fileInput" class="hidden" multiple>
         </div></div>
         <div><textarea id="pasteBox" placeholder="…o pega aquí el texto del reporte o del loop map"></textarea>
@@ -171,7 +171,7 @@
           </div></div>
       </div>
       <div id="fileLoadStatus" class="help" role="status" aria-live="polite"></div><div id="loadedTags" class="loaded-tags"></div>
-      <div class="help">iO: carga primero el SAS. El reporte de serial es opcional y se vincula solo si coincide con un dispositivo. EST3: el dibujo conserva conexiones y T-taps; el reporte completa los seriales. EST2, EST4 y QS conservan sus lectores anteriores.</div>
+      <div class="help">iO: carga primero el SAS. El reporte de serial es opcional y se vincula solo si coincide con un dispositivo. EST3: el dibujo conserva conexiones y T-taps; el reporte completa los seriales. EST2: carga el SDU o el Mapping PDF original. El SDU conserva el orden BRS y señala los tramos sin encadenar. Carga sus reportes de serial: conservamos el orden del Mapping y usamos el serial vigente del reporte. EST4 y QS conservan sus lectores anteriores.</div>
       <div class="row" style="margin-top:12px;"><button id="btnLegacySession" class="btn-ghost hidden" onclick="importLegacySession()">Copiar sesión anterior v6</button><button class="btn-ghost" onclick="document.getElementById('sessFile').click()">📂 Cargar sesión guardada</button></div>
     </div>
   </section>
@@ -219,13 +219,16 @@
 <div id="printRoot"></div>
 
 <script src="jszip.min.js"></script>
-<script src="sas-mapping.js"></script>
-<script src="est3-mapping.js"></script>
-<script src="est3-report.js"></script>
+<script src="sas-mapping.js?v=9.2"></script>
+<script src="est3-mapping.js?v=9.2"></script>
+<script src="est2-mapping.js?v=9.2"></script>
+<script src="est2-report.js?v=9.2"></script>
+<script src="est2-sdu.js?v=9.2"></script>
+<script src="est3-report.js?v=9.2"></script>
 <script>
 /* ===== estado ===== */
 var STATUSES=[{key:'ok',label:'OK'},{key:'falla',label:'Falla'},{key:'pend',label:'Pendiente'},{key:'aisl',label:'Aislado'}];
-var STORE_KEY='mappingTerrenoEST_v8_est3';
+var STORE_KEY='mappingTerrenoEST_v9_est2';
 var state={ meta:{project:'',site:'',tech:'',date:'',notes:''}, dev:{}, order:[], ann:{}, hasMapping:false, hasTtap:false, sources:[] };
 var pending=null, visibleLimit=250, menuOpen=false, curStatusFilter='total', curLoop=0;
 var searchHits=[], hitIdx=0;
@@ -697,7 +700,7 @@ function render(){ renderSummary(); var arr=filtered();
     if(st){var lab=STATUSES.filter(function(s){return s.key===st;})[0].label;html+='<span class="st '+st+'">'+lab+'</span>';}
     html+='<div class="top">';
     if(d.inMap && d.pos!=null)html+='<span class="seq">#'+d.pos+'</span>';
-    html+='<span class="addr mono">'+esc(d.address||d.key)+' <small>'+esc(d.sasId?(d.sourceFamily==='est3'?'EST3 · Loop '+d.loopnum:'P'+d.panel+' · Loop '+d.loopnum):('['+k+']'))+'</small></span>';
+    html+='<span class="addr mono">'+esc(d.address||d.key)+' <small>'+esc(d.sasId?(d.sourceFamily==='est2'?'EST2':d.sourceFamily==='est3'?'EST3 · Loop '+d.loopnum:'P'+d.panel+' · Loop '+d.loopnum):('['+k+']'))+'</small></span>';
     if(devType(d))html+='<span class="typ">'+esc(devType(d))+'</span>';
     if(d.children>1)html+='<span class="branch" style="background:'+(d.ttapColor||'var(--ttap)')+'">⑂ T-TAP #'+(d.ttapNum||'')+' ·×'+d.children+'</span>';
     if(d.ttapGroup)html+='<span class="tdot" style="background:'+(d.ttapGroupColor||'var(--ttap)')+'">#'+d.ttapGroup+'</span>';
@@ -765,8 +768,8 @@ function onSearchInput(){
 var curKey=null;
 function openDev(k){ var d=state.dev[k];if(!d)return;curKey=k;var a=state.ann[k]||{};
   var rows=''; function kv(kk,vv){return vv?'<div class="kv"><span class="k">'+kk+'</span><span>'+esc(vv)+'</span></div>':'';}
-  rows+=kv('Dirección',d.address||('…'+k)); rows+=d.sasId?kv(d.sourceFamily==='est3'?'Controlador / Loop':'Panel / Loop',d.sourceFamily==='est3'?d.scopeLabel:'P'+d.panel+' / '+d.loopnum):kv('Últimos 4',k); rows+=kv('Tipo',devType(d)); rows+=kv('Modelo',d.model||d.mtype);
-  rows+=kv('Personality',d.pers); rows+=kv('Etiqueta',d.label); rows+=kv(d.serialPartial?'Serial Mapping (últimos 4)':d.serialSource==='report'?'Serial vigente · reporte':'Serie',d.serial||d.mserial); if(d.serialSource==='report')rows+=kv('Serial original del Mapping',d.mserial); rows+=kv('Actualización de serial',d.serialConflict);
+  rows+=kv('Dirección',d.address||('…'+k)); rows+=d.sasId?kv(/^est[23]$/.test(d.sourceFamily)?'Controlador / Loop':'Panel / Loop',/^est[23]$/.test(d.sourceFamily)?d.scopeLabel:'P'+d.panel+' / '+d.loopnum):kv('Últimos 4',k); rows+=kv('Tipo',devType(d)); rows+=kv('Modelo',d.model||d.mtype);
+  rows+=kv('Personality',d.pers); rows+=kv('Etiqueta',d.label); rows+=kv(d.serialPartial?'Serial Mapping (últimos 4)':d.serialSource==='report'?'Serial vigente · reporte':'Serie',d.serialSource==='report'?(d.serial||'No indicado en el reporte'):(d.serial||d.mserial)); if(d.serialSource==='report')rows+=kv('Serial original del Mapping',d.mserial); rows+=kv('Actualización de serial',d.serialConflict); if(d.sourceFamily==='est2'&&d.reportAddress)rows+=kv('Dirección del reporte',d.reportAddress); if(d.mappingFieldReview){rows+=kv('Campos a revisar en el Mapping',d.mappingFieldReview);rows+=kv('Dirección del bloque º…º',d.rawMappingAddress);}
   if(d.seq!=null)rows+=kv('Secuencia (SDU)','S'+d.seq); if(d.pos!=null)rows+=kv('Orden en mapping','#'+d.pos);
   if(d.ttapNum)rows+=kv('Punto T-tap','#'+d.ttapNum+' (ramifica a '+d.children+')');
   if(d.parent&&state.dev[d.parent]){var p=state.dev[d.parent];rows+=kv('Sale de (T-tap)',(d.ttapGroup?'#'+d.ttapGroup+' · ':'')+(p.address||p.key)+(p.location?' · '+p.location:''));}
@@ -858,7 +861,7 @@ function buildReport(scope){ var m=Object.assign({},state.meta,{project:reportPr
 /* ===== persistencia ===== */
 var _pt=null;function persistDebounced(){if(_pt)clearTimeout(_pt);_pt=setTimeout(persist,600);}
 function persist(){try{localStorage.setItem(STORE_KEY,JSON.stringify(state));}catch(e){}}
-function loadLocal(){try{var s=localStorage.getItem(STORE_KEY)||localStorage.getItem('mappingTerrenoEST_v7_sas');if(s)return JSON.parse(s);}catch(e){}return null;}
+function loadLocal(){try{var s=localStorage.getItem(STORE_KEY)||localStorage.getItem('mappingTerrenoEST_v8_est3')||localStorage.getItem('mappingTerrenoEST_v7_sas');if(s)return JSON.parse(s);}catch(e){}return null;}
 function saveSession(){var blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});var url=URL.createObjectURL(blob);var a=document.createElement('a');
   a.href=url;a.download='sesion_'+(state.meta.project||'mapping').replace(/[^\w\-]+/g,'_')+'_'+todayISO()+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);toast('Sesión descargada ✓');}
 $('sessFile').addEventListener('change',function(e){var f=e.target.files[0];if(!f)return;var fr=new FileReader();fr.onload=function(){try{applyState(JSON.parse(fr.result));toast('Sesión cargada ✓');}catch(err){alert('Sesión no válida.');}};fr.readAsText(f);e.target.value='';});
@@ -889,10 +892,10 @@ function loadDemo(){
   var tree='Loop Map:5 6\n|-CT1    [S212] D00436 "4811763741"\n\\-CC1    [S159] D00412 "5096654540"\n  |-PS     [S089] D00339 "3919746625"\n  \\-PS     [S039] D00289 "3922470005"';
   ingest(rep,'ejemplo-reporte'); setTimeout(function(){ingest(tree,'ejemplo-loopmap');},150);
 }
-(function init(){ showScreen('scLoad'); var s=loadLocal(); if(s&&s.dev&&(Object.keys(s.dev).length||(s.est3Reports||[]).length))$('resumeBox').classList.remove('hidden'); })();
+(function init(){ showScreen('scLoad'); var s=loadLocal(); if(s&&s.dev&&(Object.keys(s.dev).length||(s.est3Reports||[]).length||(s.est2Reports||[]).length))$('resumeBox').classList.remove('hidden'); })();
 </script>
 
-<script src="sas-ui.js?v=8.1"></script>
+<script src="sas-ui.js?v=9.2"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){

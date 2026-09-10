@@ -123,24 +123,34 @@
     return { id, family: 'io', obra: obra || 'PROYECTO iO', filename, version, loops, warnings };
   }
 
-  function scope(source, loop) { return source.family === 'est3' ? 'est3:' + source.id + ':g' + loop.scopeId : 'sas:' + source.id + ':p' + loop.panel + ':l' + loop.loopnum; }
+  function scope(source, loop) { return /^est[23]$/.test(source.family) ? source.family + ':' + source.id + ':g' + loop.scopeId : 'sas:' + source.id + ':p' + loop.panel + ':l' + loop.loopnum; }
   function key(source, loop, address) { return scope(source, loop) + ':a' + address; }
+
+  function loopTree(loop) {
+    const tree=buildTree(loop.devices,loop.title,[]);
+    if(loop.order){
+      if(!Array.isArray(loop.order)||loop.order.length!==tree.order.length||new Set(loop.order).size!==tree.order.length||loop.order.some(a=>!tree.byAddress.has(a)))throw new Error('Orden del Mapping no válido.');
+      tree.order=loop.order.slice();
+    }
+    return tree;
+  }
 
   function flatten(source) {
     const result = [];
     source.loops.forEach(function (loop) {
-      const tree = buildTree(loop.devices, loop.title, []);
+      const tree = loopTree(loop);
       tree.order.forEach(function (address, i) {
         const d = tree.byAddress.get(address);
         result.push({
           key: key(source, loop, address), sasId: source.id, scope: scope(source, loop), scopeLabel: source.obra + ' · ' + loop.title,
-          panel: loop.panel, loopnum: loop.loopnum, address: String(address), label: d.label, location: d.location,
+          panel: loop.panel, loopnum: loop.loopnum, address: String(address), label: d.label, location: d.location, sourceLocation: d.location || '', projectOnly: !!d.projectOnly,
           model: d.model, mtype: d.model, serial: source.family === 'est3' ? '' : d.serial, mserial: d.serial,
           sourceFamily: source.family, serialPartial: source.family === 'est3', type: d.type || '', pers: d.base || '',
           importedReportSerial: d.reportSerial || '',
+          mappingFieldReview: (d.review || []).join(', '), rawMappingAddress: d.rawAddress || '',
           parent: d.next && d.next !== address && tree.byAddress.has(d.next) ? key(source, loop, d.next) : null,
           children: tree.children.get(address).length, depth: tree.depth.get(address), pos: i + 1, mapOrder: i,
-          inMap: loop.mapped, mappingReview: !loop.mapped
+          inMap: loop.mapped && !d.projectOnly, mappingReview: !loop.mapped || !!d.projectOnly
         });
       });
     });
@@ -152,11 +162,12 @@
   }
 
   function markdown(source, loop, records) {
-    const tree = buildTree(loop.devices, loop.title, []);
-    const est3 = source.family === 'est3';
-    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: ' + (est3 ? 'MAPPING EST3 PDF (conexiones del dibujo vectorial)' : 'PROYECTO IO (mapa leído de los datos, sin OCR)'),
-      'mapping_variante: ' + (est3 ? 'est3-vector' : 'proyecto-io'), 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
-      'panel: ' + loop.panel, 'loop: ' + loop.loopnum, 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v8.1 EST3', '---', '',
+    const tree = loopTree(loop);
+    const project=source.version==='est2-sdu';
+    const vector = /^est[23]$/.test(source.family)&&!project;
+    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: ' + (vector ? 'MAPPING ' + source.family.toUpperCase() + ' (conexiones del dibujo vectorial)' : 'PROYECTO '+(project?'EST2':'IO')+' (mapa leído de los datos, sin OCR)'),
+      'mapping_variante: ' + (vector ? source.family+'-vector' : project?'proyecto-est2':'proyecto-io'), 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
+      ...(loop.identityKnown===false ? ['identidad: controlador sin numero declarado en el Mapping'] : ['panel: '+loop.panel,'loop: '+loop.loopnum]), 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v9.2 EST2 SDU', '---', '',
       '# ' + cell(source.obra), '', '## ' + loop.title, ''];
     source.warnings.filter(w => !records || !/últimos 4 dígitos/.test(w)).forEach(w => lines.push('> REVISAR: ' + cell(w), ''));
     if (records) lines.push('El orden y las conexiones provienen del Mapping. La columna Serial usa el reporte cuando está disponible; Serial Mapping conserva la referencia original.', '');
@@ -169,13 +180,14 @@
       const branch = isChild && tree.children.get(d.next).length === 1 ? branchByAddress.get(d.next) : ++branchCount;
       branchByAddress.set(address, branch);
       const position = (posByBranch.get(branch) || 0) + 1; posByBranch.set(branch, position);
-      const parent = isChild ? 'dirección ' + d.next : loop.title;
+      const parent = isChild ? 'dirección ' + d.next : d.projectOnly||d.review&&d.review.includes('padre sin dirección en SATODA') ? 'sin dato de mapa' : loop.title;
       const current = records && records[key(source, loop, address)];
-      lines.push('| ' + ['Ramal ' + branch, position, parent, d.addr, d.label || 'no determinado', d.model || 'no determinado', d.base || '', current && current.serial || d.serial || 'no determinado', d.page || '', current && current.location || d.location, d.serial].map(cell).join(' | ') + ' |');
+      const serial = current && current.serialSource==='report' ? current.serial||'no indicado en el reporte' : current&&current.serial||d.serial||'no determinado';
+      lines.push('| ' + ['Ramal ' + branch, position, parent, d.addr, d.label || 'no determinado', d.model || 'no determinado', d.base || '', serial, d.page || '', current && current.location || d.location, d.serial].map(cell).join(' | ') + ' |');
     });
     lines.push('', 'Las direcciones de este documento pertenecen únicamente a ' + loop.title + '.', '');
     return lines.join('\n');
   }
 
-  global.SasMapping = { read, parsePanel, buildTree, flatten, markdown, scope, key };
+  global.SasMapping = { read, checkZip, parsePanel, buildTree, flatten, markdown, scope, key };
 })(window);

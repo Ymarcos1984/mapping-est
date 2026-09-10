@@ -1,59 +1,51 @@
-# Mapping EST PWA v8.1 — EST3 PDF y SAS iO
+# Mapping EST PWA v9.2 — SDU EST2 directo y reportes
 
-La app carga directamente el Mapping PDF vectorial original de EST3, reconstruye las conexiones dibujadas y permite guardar el resultado como MD. Conserva el lector SAS iO de la v7.1 que el usuario comprobó en su iPhone.
+10 de septiembre de 2026.
 
-## Uso
+## Valencia: carga directa
 
-1. Para iO, carga el SAS. El reporte de serial sigue siendo opcional.
-2. Para EST3, carga el Mapping PDF original y el reporte de serial PDF. Se pueden seleccionar juntos o en cualquier orden. Si cargas primero el reporte, queda guardado hasta incorporar su Mapping.
-3. También admite el MD EST3 generado por MD Híbrido cuando contiene un solo controlador/loop y una tabla con direcciones y seriales verificables. Si ese MD no declara el nombre del proyecto, solo se vincula cuando el reporte identifica un proyecto único con ese gabinete/controlador.
-4. Usa el selector de proyecto/controlador/loop. «Solo los del mapping» oculta equipos presentes únicamente en el reporte. Las marcas y notas se conservan al cargar otra vez el mismo archivo.
-5. Menú → Guardar Mapping en MD. Cada descarga contiene un solo controlador/loop, sus conexiones y el serial vigente del reporte cuando esté disponible. La columna Serial Mapping conserva el serial original como referencia. El reporte completo y las anotaciones se conservan en la sesión JSON.
+1. Selecciona `VALENCIA_01_00_00_58.SDU`. Se lee en el dispositivo, sin BRS, OCR ni conversión previa a MD.
+2. Para actualizar los seriales, añade `REPORTE LOOP 1.pdf` y `REPORTE LOOP 2.pdf`. Pueden cargarse juntos o en cualquier orden. Si llegan antes del Mapping, quedan pendientes hasta encontrar un origen compatible y único.
+3. El reporte más recientemente cargado manda para los equipos que contiene. El Mapping conserva secuencia, conexiones y T-taps. El serial del proyecto queda como referencia.
+4. Menú → Guardar Mapping en MD exporta el origen elegido. Serial contiene el valor vigente y Serial Mapping conserva el original. La sesión JSON guarda también los reportes completos y las notas de terreno.
 
-## Mapping parcial o de otra revisión
+No necesitas MD ni reportes para abrir el SDU. Si tienes un reporte más reciente que el proyecto, cárgalo para trabajar con sus seriales vigentes.
 
-Es posible trabajar con un Mapping antiguo y un reporte reciente. La app distingue:
+## Resultado comprobado
 
-- La coincidencia de proyecto/gabinete/controlador/loop y dirección vincula el equipo. El serial vigente proviene del reporte aunque difiera del Mapping.
-- Dirección con serial diferente: actualiza el serial vigente con el reporte y conserva el original del Mapping como referencia. No cambia su posición, padre, ramas ni T-taps.
-- Equipo solo en el reporte: lo incluye después de los equipos del Mapping, sin inventar una conexión.
-- Equipo del Mapping ausente del reporte del mismo loop: lo señala como «solo en Mapping».
+- Los 65 dispositivos del SDU coinciden en dirección, modelo, etiqueta, mensaje, serial, nivel y padre con el lector BRS suministrado.
+- La secuencia completa coincide con la tabla de `VALENCIA_MAPPING.md`, generado el 10 de septiembre. Conserva 60 conexiones identificables y 2 T-taps.
+- Las direcciones 107 y 113 están en el programa pero no tienen dirección de mapa en SATODA. Las direcciones 105 y 128 dependen de celdas sin dirección identificable. Se señalan estas cuatro conexiones ausentes, sin inventarlas.
+- El Mapping PDF tiene 65 equipos y 64 conexiones. Su lector conserva las conexiones dibujadas. No se rellenan automáticamente los huecos del SDU usando el PDF.
+- Reporte 1: 31 filas. Reporte 2: 36 filas, incluidas 34 de dispositivos y dos circuitos MCM-NAC (201 y 202) sin serial. Para completar Valencia se utilizan ambos reportes.
+- SDU más ambos reportes: 67 registros. Los MCM-NAC quedan al final, sin serial supuesto ni conexiones inventadas.
+- Las nueve columnas de las 67 filas coinciden con una extracción independiente mediante PyMuPDF, incluidas las celdas de varias líneas.
 
-Los avisos de diferencia no bloquean la carga. Un archivo distinto se conserva como otro origen. Si varios proyectos/revisiones hacen ambiguo un enlace, el reporte queda pendiente. El último reporte cargado sustituye al anterior para los loops que contiene; los demás loops conservan su reporte. Esta prioridad aplica también al reporte iO cuando el panel/loop/dirección se identifican de forma única.
+Cada archivo distinto se conserva como otro origen. Si cargas el PDF y el SDU de la misma obra, un reporte puede encontrar dos Mapping compatibles y quedar pendiente. Para trabajar con una sola versión, guarda la sesión anterior y empieza una sesión con el origen que quieras usar.
 
-## Instalar o actualizar en iPhone
+## Otros lectores
 
-Publica todos los archivos de esta carpeta juntos en el alojamiento HTTPS que utilizas para la PWA. Abre con conexión, cierra y vuelve a abrir hasta ver «Versión 8.1». Después de la primera carga completa quedan disponibles los lectores PDF/MD/SAS sin conexión; los documentos deben estar descargados en Archivos.
+- iO: SAS directo y reporte opcional, conservando la prioridad del serial reciente.
+- EST3: Mapping PDF vectorial y reporte PDF; también el MD compatible de un controlador, comprobado con Beachclub.
+- EST2: SDU directo o Mapping PDF del diseño Valencia, más los reportes tabulares aportados.
+- EST4 y QS: conservan sus lectores anteriores. No se añade SDU EST3 ni XDU directo.
 
-Esta entrega pasó pruebas en Chromium con tamaño de pantalla móvil y sin conexión. La v8.1 todavía necesita tu comprobación en Safari/iPhone físico; la confirmación anterior corresponde a la v7.1.
+## Actualizar en iPhone
 
-## Sesiones y originales
+Publica todos los archivos de esta carpeta juntos en el alojamiento HTTPS de tu PWA. Abre con conexión y vuelve a abrir hasta ver «Versión 9.2» en la pantalla de carga. El selector permite elegir SAS/SDU y valida su contenido después.
 
-La v8 utiliza un almacenamiento distinto. En la misma dirección web puede copiar la sesión v7 al pulsar Reanudar, conservando el original. Si cambia la dirección, guarda la sesión JSON en la app anterior y cárgala en esta. Reiniciar la v8 vacía su propia sesión.
+Tras una carga completa, los lectores y librerías quedan guardados para trabajar sin conexión. Los documentos deben estar descargados en Archivos. No se suben a ningún servidor.
 
-Las carpetas y ZIP originales v6/v7/v7.1, MD Híbrido, BRS y los documentos proporcionados no se modificaron.
+La v9.2 usa la clave de sesión de v9 y puede copiar sesiones v8/v8.1 en el mismo sitio. Si cambias de dirección web, exporta tu sesión JSON y cárgala en la nueva dirección. Se conservaron los ZIP anteriores.
 
-## Validación de esta entrega
+## Validación y límites
 
-- Murano PDF: 79 dispositivos, 77 conexiones y 1 T-tap, iguales al conversor de referencia.
-- Offizzina PDF: 149 dispositivos, 148 conexiones y 2 T-taps, iguales al conversor de referencia.
-- Reportes: Murano 91 filas (incluidas etiquetas sin guion bajo), Offizzina 424 filas y Beachclub 324 filas. Conserva gabinete/controlador/loop y separa columnas aunque la ubicación sea larga.
-- Beachclub: el ZIP aportado contiene MD y reporte PDF, sin el PDF original del Mapping. Su MD tiene 146 equipos; 96 seriales coinciden por dirección, 48 difieren y 2 direcciones no aparecen en el reporte. Los 144 equipos presentes usan el serial del reporte; se comprobó que los 146 conservan exactamente el orden de la tabla MD. Una comparación independiente con PyMuPDF confirmó estos resultados. El MD declara 2 T-taps y su tabla deja 97 raíces; no se certifican las conexiones del plano original sin ese PDF.
-- Regresión iO: cinco SAS, 1.157 dispositivos y 11 loops; reporte Saratoga, MD, sesiones, anotaciones y modo sin conexión.
-- Rechazo de PDF con páginas duplicadas o giradas sin alterar la sesión anterior. Separación de controladores con el mismo número de loop.
+55 comprobaciones automáticas en navegador: 11 de SDU/reportes EST2, 8 de Mapping PDF EST2, 16 de EST3 y 20 de iO/regresión. Incluyen trabajo sin conexión, MD, notas, sesiones, serial reciente, archivos dañados y separación de proyectos. La prueba física de v9.2 en Safari/iPhone está pendiente; la confirmación anterior corresponde a v8.1.
 
-## Límites
+El lector SDU admite las tablas Paradox EST2 comprobadas en Valencia y mapas CURMAP/SATODA de 256 celdas. Rechaza esquemas distintos, tablas truncadas, direcciones repetidas, ciclos y punteros que no se pueden resolver de forma única. No se certifica aquí todo el corpus EST2.
 
-El nuevo lector vectorial es para EST3 y los diseños de PDF comprobados. No añade reconstrucción avanzada de EST2, EST4 o QuickStart; siguen disponibles sus lectores anteriores. SDU/XDU pueden seleccionarse, pero no se convierten directamente. Para esos archivos usa el Mapping exportado. Un PDF escaneado requiere conversión/OCR externo.
+Los reportes EST2 añadidos son los PDF tabulares de nueve columnas aportados. Los grupos 01/02 de la dirección identifican sensores/módulos del mismo loop; no se interpretan como dos cables físicos. El enlace exige equipos coincidentes y un único origen. Un reporte de otra estructura o escaneado puede requerir conversión externa.
 
-La app limita los archivos a 20 MB, los PDF a 200 páginas y el análisis geométrico EST3 a 1.500 dispositivos por controlador/loop. No sube los documentos a servidores.
+Límite: 20 MB por archivo y 200 páginas por PDF. El MD contiene los dispositivos de su origen; las filas adicionales del reporte se conservan en la sesión JSON.
 
-## Archivos principales
-
-index.html, sas-mapping.js, sas-ui.js, est3-mapping.js y est3-report.js. JSZip y PDF.js permanecen incluidos localmente; JSZip conserva su licencia adjunta y PDF.js su licencia incrustada. sw.js, manifest.webmanifest e iconos proporcionan la instalación y caché.
-
-Evidencia y pruebas reproducibles en la carpeta hermana AUDITORIA_PWA.
-
-## Verificación v8.1
-
-36 comprobaciones automáticas superadas: 16 EST3 y 20 iO/regresión. Incluyen prioridad del último reporte, serial cambiado al reimportar SAS, orden exacto Beachclub, exportación MD con serial vigente y referencia original, y actualización de sesiones guardadas en v8.
+Pruebas reproducibles y evidencias: carpeta hermana `AUDITORIA_PWA`. BRS, MD Híbrido y los documentos originales no se modificaron.

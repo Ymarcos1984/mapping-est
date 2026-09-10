@@ -22,6 +22,7 @@
     var messages = list.flatMap(s => s.warnings.map(w => s.obra + ': ' + w));
     if (state.sasReportNotice && (!curLoop || (state.sasReportSourceIds || []).some(id => list.some(s => s.id === id)))) messages.push(state.sasReportNotice);
     if (state.est3ReportNotice && (!curLoop || list.some(s => s.family === 'est3'))) messages.push(Est3Report.noticeFor(state, curLoop));
+    if ((state.est2Reports||[]).length && (!curLoop || list.some(s=>s.family==='est2'))) messages.push(Est2Report.noticeFor(state,curLoop));
     notice(messages.join('\n'));
     $('btnSasMd').classList.toggle('hidden', !sources().length);
   }
@@ -34,8 +35,8 @@
     var records = state.order.map(k => state.dev[k]).filter(d => d.sasId && (!curLoop || d.scope === curLoop));
     var scopes = new Set(records.map(d => d.scope));
     $('sasLoadedSummary').classList.toggle('hidden', !records.length);
-    var hasEst3 = records.some(d => d.sourceFamily === 'est3');
-    $('sasLoadedSummary').textContent = records.length + (hasEst3 ? ' dispositivos' : ' dispositivos SAS') + ' · ' + scopes.size + (scopes.size === 1 ? ' loop' : ' loops') + ' · ' + records.filter(d => d.children > 1).length + ' T-taps. ' + (hasEst3 ? records.filter(d => d.inMap).length + ' en el dibujo; ' + records.filter(d => !d.inMap).length + ' solo en reporte.' : 'Incluye etiquetas, mensajes y seriales del SAS.');
+    var hasEst3 = records.some(d => /^est[23]$/.test(d.sourceFamily));
+    $('sasLoadedSummary').textContent = records.length + (hasEst3 ? ' dispositivos' : ' dispositivos SAS') + ' · ' + scopes.size + (scopes.size === 1 ? ' loop' : ' loops') + ' · ' + records.filter(d => d.children > 1).length + ' T-taps. ' + (hasEst3 ? records.filter(d => d.inMap).length + ' en el Mapping; ' + records.filter(d => !d.inMap).length + ' sin conexión de Mapping.' : 'Incluye etiquetas, mensajes y seriales del SAS.');
   };
 
   loopOf = function (key) { return state.dev[key] && state.dev[key].scope || legacyLoopOf(key); };
@@ -59,7 +60,7 @@
   };
   setLoop = function () {
     var value = $('fLoop').value;
-    curLoop = /^(sas|est3):/.test(value) ? value : Number(value) || 0;
+    curLoop = /^(sas|est[23]):/.test(value) ? value : Number(value) || 0;
     visibleLimit = 250; hitIdx = 0; render();
   };
   rebuildOrder = function () {
@@ -70,7 +71,7 @@
       if (!x.sasId && !y.sasId) return 0;
       if (!x.sasId) return 1;
       if (!y.sasId) return -1;
-      return sourceOrder.get(x.sasId) - sourceOrder.get(y.sasId) || Number(!!x.est3ReportOnly) - Number(!!y.est3ReportOnly) || x.panel - y.panel || x.loopnum - y.loopnum || String(x.scope).localeCompare(String(y.scope)) || x.mapOrder - y.mapOrder;
+      return sourceOrder.get(x.sasId) - sourceOrder.get(y.sasId) || Number(!!(x.est3ReportOnly||x.est2ReportOnly)) - Number(!!(y.est3ReportOnly||y.est2ReportOnly)) || x.panel - y.panel || x.loopnum - y.loopnum || String(x.scope).localeCompare(String(y.scope)) || x.mapOrder - y.mapOrder;
     });
     computeTtaps();
   };
@@ -89,12 +90,13 @@
     devices.forEach(function (device) {
       var old = next.dev[device.key] || {};
       next.dev[device.key] = Object.assign({}, old, device, { type: old.type || device.type, pers: old.pers || device.pers });
-      if (source.family === 'io' && old.reportSerial) next.dev[device.key].serial = old.reportSerial;
+      if (source.family !== 'est3' && old.reportSerial) next.dev[device.key].serial = old.reportSerial;
     });
     Est3Report.enrich(next);
+    Est2Report.enrich(next);
     next.meta.project = next.meta.project || source.obra;
     next.meta.date = next.meta.date || todayISO();
-    next.sources = [...new Set(next.sources.concat([(source.family === 'est3' ? 'Mapping EST3 · ' : 'SAS · ') + source.filename]))];
+    next.sources = [...new Set(next.sources.concat([(source.family === 'io' ? 'SAS · ' : 'Mapping '+source.family.toUpperCase()+' · ') + source.filename]))];
     next.hasMapping = Object.values(next.dev).some(d => d.inMap);
     next.hasTtap = Object.values(next.dev).some(d => d.children > 1);
     state = next;
@@ -103,11 +105,12 @@
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (error) { state = previous; throw new Error('No se pudo guardar el Mapping. La sesión anterior se conserva: ' + error.message); }
     curLoop = 0;
-    afterLoad(source.filename, source.family === 'est3' ? 'Mapping EST3 ' + (source.version === 'est3-md' ? 'MD' : 'PDF') : 'Mapping SAS', devices.length + ' dispositivos · ' + source.loops.length + ' loops');
+    afterLoad(source.filename, source.family === 'io' ? 'Mapping SAS' : 'Mapping '+source.family.toUpperCase()+' '+(source.version==='est2-sdu'?'SDU':/-md$/.test(source.version)?'MD':'PDF'), devices.length + ' dispositivos · ' + source.loops.length + ' grupos');
   };
 
   function validateSources(saved) {
     Est3Report.validate(saved && saved.est3Reports || []);
+    Est2Report.validate(saved && saved.est2Reports || []);
     if (!saved || !saved.dev || !Array.isArray(saved.order) || typeof saved.dev !== 'object' || Array.isArray(saved.dev)) throw new Error('Sesión no válida.');
     if (saved.order.some(k => typeof k !== 'string' || !Object.prototype.hasOwnProperty.call(saved.dev, k))) throw new Error('Sesión con dispositivos ausentes.');
     if (new Set(saved.order).size !== saved.order.length) throw new Error('Sesión con claves duplicadas.');
@@ -124,13 +127,14 @@
     if (!Array.isArray(list) || list.length > 100) throw new Error('Lista de SAS no válida.');
     var sourceIds = new Set();
     list.forEach(function (source) {
-      if (!['io', 'est3'].includes(source.family)) throw new Error('Familia de Mapping de sesión no válida.');
+      if (!['io', 'est3', 'est2'].includes(source.family)) throw new Error('Familia de Mapping de sesión no válida.');
       if (!/^[a-f0-9]{64}$/.test(source.id) || sourceIds.has(source.id) || !Array.isArray(source.loops) || !Array.isArray(source.warnings)) throw new Error('Origen SAS no válido.');
       if (source.warnings.some(w => typeof w !== 'string') || typeof source.obra !== 'string' || typeof source.filename !== 'string') throw new Error('Metadatos SAS no válidos.');
       sourceIds.add(source.id);
       source.loops.forEach(function (lp) {
         if (!Number.isSafeInteger(lp.panel) || lp.panel < 1 || !Number.isSafeInteger(lp.loopnum) || lp.loopnum < 1 || !Array.isArray(lp.devices)) throw new Error('Loop SAS no válido.');
         if (source.family === 'est3' && (!Number.isSafeInteger(lp.scopeId) || lp.scopeId < 1 || typeof lp.cabinet !== 'string' || typeof lp.controller !== 'string')) throw new Error('Identidad del controlador EST3 no válida.');
+        if (source.family === 'est2' && (!Number.isSafeInteger(lp.scopeId) || lp.scopeId < 1)) throw new Error('Identidad del Mapping EST2 no válida.');
       });
       if (new Set(source.loops.map(lp => SasMapping.scope(source, lp))).size !== source.loops.length) throw new Error('Controlador o loop repetido.');
       SasMapping.flatten(source).forEach(function (device) {
@@ -143,6 +147,7 @@
     validateSources(saved);
     saved = JSON.parse(JSON.stringify(saved));
     Est3Report.enrich(saved);
+    Est2Report.enrich(saved);
     saved.order = [];
     state.sasSources = saved.sasSources || [];
     state.sasReportNotice = saved.sasReportNotice || '';
@@ -150,6 +155,8 @@
     state.est3Reports = saved.est3Reports || [];
     state.est3ReportNotice = saved.est3ReportNotice || '';
     state.est3PendingCount = saved.est3PendingCount || 0;
+    state.est2Reports = saved.est2Reports || [];
+    state.est2PendingCount = saved.est2PendingCount || 0;
     curLoop = 0;
     legacyApply(saved); rebuildOrder(); render(); persist(); warnings();
   };
@@ -175,7 +182,7 @@
     sources().forEach(s => s.loops.forEach(lp => choices.push({ source: s, loop: lp })));
     if (!choices.length) return;
     function save(choice) {
-      var name = choice.source.obra.replace(/[^\w-]+/g, '_') + '_P' + choice.loop.panel + (choice.source.family === 'est3' ? '_G' + choice.loop.scopeId : '') + '_L' + choice.loop.loopnum + '_MAPPING.md';
+      var name = choice.source.obra.replace(/[^\w-]+/g, '_') + (choice.loop.identityKnown===false ? '_G'+choice.loop.scopeId : '_P'+choice.loop.panel+(/^est[23]$/.test(choice.source.family)?'_G'+choice.loop.scopeId:'')+'_L'+choice.loop.loopnum) + '_MAPPING.md';
       download(SasMapping.markdown(choice.source, choice.loop, state.dev), name, 'text/markdown;charset=utf-8');
     }
     if (choices.length === 1) { save(choices[0]); return; }
@@ -195,7 +202,7 @@
 
   upsertReport = function (rows) {
     if (!sources().length) { legacyReport(rows); return; }
-    var candidates = Object.values(state.dev).filter(d => d.sasId && d.sourceFamily !== 'est3'), matched = 0, unresolved = [], sourceIds = new Set();
+    var candidates = Object.values(state.dev).filter(d => d.sasId && d.sourceFamily === 'io'), matched = 0, unresolved = [], sourceIds = new Set();
     rows.forEach(function (row) {
       var serial = String(row.serial || '').replace(/\D/g, '');
       var address = row.ioAddress == null ? Number(addrKey(row.address || row.key)) : row.ioAddress;
@@ -252,22 +259,29 @@
     var id = [...new Uint8Array(digest)].map(n => n.toString(16).padStart(2, '0')).join('');
     var lib = await ensurePdf();
     var doc = await lib.getDocument({ data: buffer, isEvalSupported: false }).promise;
-    var text = '', texts = [], ioRows = [], ioPages = 0;
+    var text = '', texts = [], ioRows = [], ioPages = 0, est2Rows = [];
     try {
-      var firstText = (await (await doc.getPage(1)).getTextContent()).items.map(it => it.str).join(' ');
+      var firstPage = await doc.getPage(1), firstContent = await firstPage.getTextContent();
+      var firstText = firstContent.items.map(it => it.str).join(' ');
+      if (Est2Mapping.tileOf(firstPage,firstContent) && /º|«|SIGA-/.test(firstText)) {
+        return { mapping: await Est2Mapping.read(doc,lib,id,filename,(n,total)=>{$('fileLoadStatus').textContent='Mapping EST2: página '+n+'/'+total+'…';}) };
+      }
       if (/Loop\s+Number\s+\d+/i.test(firstText) && /Project:/i.test(firstText) && /Version:/i.test(firstText)) {
         return { mapping: await Est3Mapping.read(doc, lib, id, filename, (n, total) => { $('fileLoadStatus').textContent = 'Mapping EST3: página ' + n + '/' + total + '…'; }) };
       }
       if (doc.numPages > 200) throw new Error('El PDF supera 200 páginas.');
       var isEst3Report = /Signature Detectors\/Modules Barcode Worksheet/.test(firstText) && /EST3 System/.test(firstText), reportColumns = {};
+      var isEst2Report = Est2Report.isReport(firstContent);
       for (var i = 1; i <= doc.numPages; i++) {
         var page = await doc.getPage(i), content = await page.getTextContent();
+        if(isEst2Report){est2Rows.push(...Est2Report.readPage(content,i));continue;}
         var pageText = isEst3Report ? Est3Report.pageText(content, reportColumns) : reconstructPage(content); texts.push(pageText); text += pageText + '\n';
         var rows = ioReportPage(content);
         if (rows) { ioRows.push(...rows); ioPages++; }
       }
       if (ioPages && ioPages !== doc.numPages) throw new Error('El reporte mezcla páginas de formatos distintos. No se ha incorporado.');
       if (isEst3Report) return { est3Report: Est3Report.read(texts, id, filename) };
+      if(isEst2Report){var report={id,filename,rows:est2Rows};Est2Report.validate([report]);return {est2Report:report};}
       return { text, ioRows: ioPages ? ioRows : null };
     } finally { await doc.destroy(); }
   }
@@ -278,17 +292,30 @@
       if (epoch !== queueEpoch) return;
       // iOS may disable unknown extensions in a filtered picker. Select freely,
       // then validate here; never send a binary project to the generic text reader.
-      if (/\.(sdu|xdu)$/i.test(file.name)) throw new Error('La lectura directa de proyectos SDU/XDU todavía no está incorporada en esta versión. Carga su Mapping en MD. La conversión directa disponible es SAS iO.');
-      if (!/\.(sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SAS, PDF, MD, TXT, CSV o PRN.');
+      if (/\.xdu$/i.test(file.name)) throw new Error('La lectura directa XDU todavía no está incorporada. Carga su Mapping en MD.');
+      if (!/\.(sdu|sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SDU EST2, SAS, PDF, MD, TXT, CSV o PRN.');
       if (file.size > 20 * 1024 * 1024) throw new Error('El archivo supera el límite de 20 MB.');
       $('fileLoadStatus').textContent = 'Leyendo ' + file.name + '…';
-      if (/\.sas$/i.test(file.name)) {
+      if (/\.sdu$/i.test(file.name)) {
+        var sduSource=await Est2Sdu.read(await file.arrayBuffer(),file.name);
+        if(epoch===queueEpoch)commitSas(sduSource);
+      } else if (/\.sas$/i.test(file.name)) {
         var source = await SasMapping.read(await file.arrayBuffer(), file.name);
         if (epoch === queueEpoch) commitSas(source);
       } else if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
         var result = await readPdf(await file.arrayBuffer(), file.name);
         if (epoch !== queueEpoch) return;
         if (result.mapping) commitSas(result.mapping);
+        else if(result.est2Report){
+          var previousEst2=state;state=JSON.parse(JSON.stringify(state));
+          try{
+            state.est2Reports=(state.est2Reports||[]).filter(r=>r.id!==result.est2Report.id).concat([result.est2Report]);
+            Est2Report.enrich(state);rebuildOrder();
+            state.sources=[...new Set(state.sources.concat(['Reporte EST2 · '+file.name]))];
+            localStorage.setItem(STORE_KEY,JSON.stringify(state));
+          }catch(error){state=previousEst2;throw error;}
+          afterLoad(file.name,'Reporte EST2',result.est2Report.rows.length+' filas leídas');
+        }
         else if (result.est3Report) {
           var previous = state;
           state = JSON.parse(JSON.stringify(state));

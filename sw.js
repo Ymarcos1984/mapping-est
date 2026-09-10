@@ -1,6 +1,6 @@
 const PREFIX = 'mapping-sas:' + self.registration.scope + ':';
-const CACHE = PREFIX + 'v8-1-report-serial';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './jszip.min.js', './sas-mapping.js', './est3-mapping.js', './est3-report.js', './sas-ui.js?v=8.1'];
+const CACHE = PREFIX + 'v9-2-est2-sdu-r1';
+const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './jszip.min.js', './sas-mapping.js?v=9.2', './est3-mapping.js?v=9.2', './est2-mapping.js?v=9.2', './est2-report.js?v=9.2', './est2-sdu.js?v=9.2', './est3-report.js?v=9.2', './sas-ui.js?v=9.2'];
 self.addEventListener('install', function (event) {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });

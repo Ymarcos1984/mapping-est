@@ -1,7 +1,7 @@
 {
-  "name": "Mapping de Terreno EST · v8.1",
+  "name": "Mapping de Terreno EST · v9.2",
   "short_name": "Mapping EST",
-  "description": "Mapping de campo con lectura directa de Mapping EST3 PDF, SAS iO y exportación MD.",
+  "description": "Mapping de campo con lectura directa de SDU EST2, Mapping EST2 y EST3 PDF, SAS iO y exportación MD.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
