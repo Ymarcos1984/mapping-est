@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<title>Mapping de Terreno · EST</title>
+<title>Mapping de Terreno · EST · v7 SAS</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -143,6 +143,7 @@
   <button class="abtn btn-ghost hidden" id="btnMenu" onclick="toggleMenu()">⋯</button>
 </header>
 <div id="menuPop" class="hidden" style="position:fixed;right:10px;top:52px;z-index:40;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:4px;min-width:210px;">
+  <button id="btnSasMd" class="btn-ghost hidden" onclick="downloadSasMd()">Guardar Mapping en MD</button>
   <button class="btn-ghost" onclick="saveSession();toggleMenu()">💾 Guardar sesión (archivo)</button>
   <button class="btn-ghost" onclick="document.getElementById('sessFile').click();toggleMenu()">📂 Cargar sesión</button>
   <button class="btn-ghost" onclick="resetAll();toggleMenu()">🗑 Reiniciar todo</button>
@@ -156,12 +157,12 @@
       <button class="btn-ghost" onclick="dismissResume()">Ignorar</button>
     </div>
     <div class="hero">
-      <h1>Cargar reporte / mapping</h1>
-      <p>Carga el <b>reporte</b> (ubicaciones, loop completo) y el <b>mapping</b> (orden y T-tap). Reconoce solo el formato EST3 (Loop Map .txt, worksheet .pdf) y también tablas genéricas. Combina por los <b>últimos 4 de la dirección</b>. Todo offline.</p>
+      <h1>Cargar reporte / mapping</h1><div class="help">Versión 7 · lectura directa de SAS iO</div>
+      <p>Para <b>iO</b>, carga el <b>SAS</b>: incluye el mapa, los T-tap, las etiquetas y los seriales. Para los demás formatos, carga tus reportes y Mapping habituales. Los archivos se procesan en este dispositivo.</p>
       <div class="loadgrid">
         <div><div class="drop" id="dropZone">
-          <div class="big">📄 Elegir archivo</div><div class="sub">.txt · .csv · .pdf<br>(o arrastra aquí)</div>
-          <input type="file" id="fileInput" accept=".txt,.csv,.pdf,.prn,.md,.text,text/plain,text/markdown,application/pdf" class="hidden" multiple>
+          <div class="big">📄 Elegir archivo</div><div class="sub">.sas · .md · .txt · .csv · .pdf<br>(o arrastra aquí)</div>
+          <input type="file" id="fileInput" accept=".sas,.txt,.csv,.pdf,.prn,.md,.text,text/plain,text/markdown,application/pdf" class="hidden" multiple>
         </div></div>
         <div><textarea id="pasteBox" placeholder="…o pega aquí el texto del reporte o del loop map"></textarea>
           <div class="row" style="margin-top:8px;">
@@ -169,9 +170,9 @@
             <button class="btn-ghost" onclick="loadDemo()">Ver ejemplo</button>
           </div></div>
       </div>
-      <div id="loadedTags" class="loaded-tags"></div>
-      <div class="help">Puedes cargar varios: primero el reporte y luego el mapping (o al revés). Se combinan solos.</div>
-      <div class="row" style="margin-top:12px;"><button class="btn-ghost" onclick="document.getElementById('sessFile').click()">📂 Cargar sesión guardada</button></div>
+      <div id="fileLoadStatus" class="help" role="status" aria-live="polite"></div><div id="loadedTags" class="loaded-tags"></div>
+      <div class="help">iO: carga primero el SAS. El reporte de serial es opcional y se vincula solo si coincide con un dispositivo. Los Mapping PDF de otros paneles conservan las funciones de la versión anterior.</div>
+      <div class="row" style="margin-top:12px;"><button id="btnLegacySession" class="btn-ghost hidden" onclick="importLegacySession()">Copiar sesión anterior v6</button><button class="btn-ghost" onclick="document.getElementById('sessFile').click()">📂 Cargar sesión guardada</button></div>
     </div>
   </section>
 
@@ -191,7 +192,7 @@
   </section>
 
   <section id="scMain" class="screen">
-    <div id="projLine" class="help" style="margin-bottom:8px;"></div>
+    <div id="projLine" class="help" style="margin-bottom:8px;"></div><div id="sasLoadedSummary" class="panel help hidden"></div><div id="sasNotice" class="panel help hidden" role="status" style="white-space:pre-wrap;border-left:4px solid var(--pend);"></div>
     <div class="summary" id="summary"></div>
     <div class="progress"><i id="progBar"></i></div>
     <div class="filters">
@@ -217,10 +218,12 @@
 <input type="file" id="sessFile" accept=".json,application/json" class="hidden">
 <div id="printRoot"></div>
 
+<script src="jszip.min.js"></script>
+<script src="sas-mapping.js"></script>
 <script>
 /* ===== estado ===== */
 var STATUSES=[{key:'ok',label:'OK'},{key:'falla',label:'Falla'},{key:'pend',label:'Pendiente'},{key:'aisl',label:'Aislado'}];
-var STORE_KEY='mappingTerrenoEST_v2';
+var STORE_KEY='mappingTerrenoEST_v7_sas';
 var state={ meta:{project:'',site:'',tech:'',date:'',notes:''}, dev:{}, order:[], ann:{}, hasMapping:false, hasTtap:false, sources:[] };
 var pending=null, visibleLimit=250, menuOpen=false, curStatusFilter='total', curLoop=0;
 var searchHits=[], hitIdx=0;
@@ -687,16 +690,17 @@ function render(){ renderSummary(); var arr=filtered();
     var esHit=(idx in hitPos), esCur=esHit&&hitPos[idx]===hitIdx;
     cls+=(esHit?' hit'+(esCur?' cur':''):(searchHits.length?' dim':''));
     html+='<div class="dev '+cls+(d.inMap?'':' nomap')+'"'+(esHit?' data-hit="'+hitPos[idx]+'"':'')+
-      ' onclick="openDev(\''+jsstr(k)+'\')">';
+      ' onclick="openDev(\''+esc(jsstr(k))+'\')">';
     if(esHit)html+='<span class="hitno">'+(hitPos[idx]+1)+'/'+searchHits.length+'</span>';
     if(st){var lab=STATUSES.filter(function(s){return s.key===st;})[0].label;html+='<span class="st '+st+'">'+lab+'</span>';}
     html+='<div class="top">';
     if(d.inMap && d.pos!=null)html+='<span class="seq">#'+d.pos+'</span>';
-    html+='<span class="addr mono">'+esc(d.address||d.key)+' <small>['+esc(k)+']</small></span>';
+    html+='<span class="addr mono">'+esc(d.address||d.key)+' <small>'+esc(d.sasId?('P'+d.panel+' · Loop '+d.loopnum):('['+k+']'))+'</small></span>';
     if(devType(d))html+='<span class="typ">'+esc(devType(d))+'</span>';
     if(d.children>1)html+='<span class="branch" style="background:'+(d.ttapColor||'var(--ttap)')+'">⑂ T-TAP #'+(d.ttapNum||'')+' ·×'+d.children+'</span>';
     if(d.ttapGroup)html+='<span class="tdot" style="background:'+(d.ttapGroupColor||'var(--ttap)')+'">#'+d.ttapGroup+'</span>';
     html+='</div>';
+    if(d.sasId)html+='<div class="help">'+esc(d.scopeLabel)+(d.mappingReview?' · MAPA POR REVISAR':'')+'</div>';
     if(d.label)html+='<div class="lbl">'+esc(d.label)+'</div>';
     if(d.location)html+='<div class="loc">📍 '+esc(d.location)+'</div>';
     if(d.parent && state.dev[d.parent]){ var p=state.dev[d.parent]; var gc=d.ttapGroupColor;
@@ -757,7 +761,7 @@ function onSearchInput(){
 var curKey=null;
 function openDev(k){ var d=state.dev[k];if(!d)return;curKey=k;var a=state.ann[k]||{};
   var rows=''; function kv(kk,vv){return vv?'<div class="kv"><span class="k">'+kk+'</span><span>'+esc(vv)+'</span></div>':'';}
-  rows+=kv('Dirección',d.address||('…'+k)); rows+=kv('Últimos 4',k); rows+=kv('Tipo',devType(d)); rows+=kv('Modelo',d.model||d.mtype);
+  rows+=kv('Dirección',d.address||('…'+k)); rows+=d.sasId?kv('Panel / Loop','P'+d.panel+' / '+d.loopnum):kv('Últimos 4',k); rows+=kv('Tipo',devType(d)); rows+=kv('Modelo',d.model||d.mtype);
   rows+=kv('Personality',d.pers); rows+=kv('Etiqueta',d.label); rows+=kv('Serie',d.serial||d.mserial);
   if(d.seq!=null)rows+=kv('Secuencia (SDU)','S'+d.seq); if(d.pos!=null)rows+=kv('Orden en mapping','#'+d.pos);
   if(d.ttapNum)rows+=kv('Punto T-tap','#'+d.ttapNum+' (ramifica a '+d.children+')');
@@ -811,7 +815,7 @@ function generatePdf(scope,byType){
   ensureJsPdf();
   var jsPDFc=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF; if(!jsPDFc) throw 'jsPDF no disponible';
   var doc=new jsPDFc({orientation:'landscape',unit:'pt',format:'a4'});
-  var m=state.meta, c=counts();
+  var m=Object.assign({},state.meta,{project:reportProjectName()}), c=counts();
   doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('Reporte de terreno — Mapping EST',40,40);
   doc.setFont('helvetica','normal'); doc.setFontSize(9);
   var meta=[]; if(m.project)meta.push('Proyecto: '+m.project); if(m.site)meta.push('Sitio: '+m.site); if(m.tech)meta.push('Tecnico: '+m.tech); if(m.date)meta.push('Fecha: '+m.date);
@@ -820,7 +824,7 @@ function generatePdf(scope,byType){
   var keys=state.order.filter(function(k){ if(curLoop && loopOf(k)!==curLoop)return false; if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
   var body=keys.map(function(k){ var d=state.dev[k],a=state.ann[k]||{}; var st=a.status?STATUSES.filter(function(s){return s.key===a.status;})[0].label:'';
     var par=(d.parent&&state.dev[d.parent])?(state.dev[d.parent].address||d.parent):''; var tt=d.ttapNum?('T#'+d.ttapNum):(d.ttapGroup?('#'+d.ttapGroup):'');
-    return [d.pos!=null?d.pos:'', d.address||k, d.location||d.label||'', devType(d), tt, par, st, a.note||'']; });
+    return [d.pos!=null?d.pos:'', d.address||k, (d.scopeLabel?d.scopeLabel+'\n':'')+(d.location||d.label||''), devType(d), tt, par, st, a.note||'']; });
   doc.autoTable({ head:[['#','Direccion','Ubicacion','Tipo','T-tap','Sale de','Estado','Nota']], body:body.length?body:[['','','Sin puntos','','','','','']],
     startY:y+10, styles:{fontSize:7,cellPadding:2,overflow:'linebreak'}, headStyles:{fillColor:[15,23,42]},
     columnStyles:{0:{cellWidth:22},1:{cellWidth:72},3:{cellWidth:52},4:{cellWidth:34},6:{cellWidth:52}} });
@@ -835,12 +839,12 @@ function generatePdf(scope,byType){
   doc.save((m.project||'mapping').replace(/[^\w\-]+/g,'_')+'_reporte_'+todayISO()+'.pdf');
   toast('PDF descargado ✓');
 }
-function buildReport(scope){ var m=state.meta,c=counts();
+function buildReport(scope){ var m=Object.assign({},state.meta,{project:reportProjectName()}),c=counts();
   var keys=state.order.filter(function(k){ if(curLoop && loopOf(k)!==curLoop)return false; if(scope==='all')return true; var a=state.ann[k]; return a&&(a.status||(a.note&&a.note.trim())); });
   var rows=keys.map(function(k){ var d=state.dev[k],a=state.ann[k]||{}; var st=a.status?STATUSES.filter(function(s){return s.key===a.status;})[0].label:'';
     var par=(d.parent&&state.dev[d.parent])?(state.dev[d.parent].address||d.parent):'';
     var tt=d.ttapNum?('T#'+d.ttapNum):(d.ttapGroup?('#'+d.ttapGroup):'');
-    return '<tr><td>'+(d.pos!=null?d.pos:'')+'</td><td class="mono">'+esc(d.address||k)+'</td><td>'+esc(d.location||d.label||'')+'</td><td>'+esc(devType(d))+'</td><td>'+esc(tt)+'</td><td>'+esc(par)+'</td><td>'+esc(st)+'</td><td>'+esc(a.note||'')+'</td></tr>'; }).join('');
+    return '<tr><td>'+(d.pos!=null?d.pos:'')+'</td><td class="mono">'+esc(d.address||k)+'</td><td>'+esc((d.scopeLabel?d.scopeLabel+' / ':'')+(d.location||d.label||''))+'</td><td>'+esc(devType(d))+'</td><td>'+esc(tt)+'</td><td>'+esc(par)+'</td><td>'+esc(st)+'</td><td>'+esc(a.note||'')+'</td></tr>'; }).join('');
   var head='<h1>Reporte de terreno — Mapping EST</h1><div style="font-size:12px;margin-bottom:8px;">'+
     (m.project?'<b>Proyecto:</b> '+esc(m.project)+'<br>':'')+(m.site?'<b>Sitio:</b> '+esc(m.site)+'<br>':'')+
     (m.tech?'<b>Técnico:</b> '+esc(m.tech)+' &nbsp; ':'')+(m.date?'<b>Fecha:</b> '+esc(m.date):'')+(m.notes?'<br><b>Notas:</b> '+esc(m.notes):'')+'</div>';
@@ -862,7 +866,9 @@ function applyState(o){ state.meta=o.meta||state.meta; state.dev=o.dev||{}; stat
 function resumeSession(){var s=loadLocal();if(s)applyState(s);}
 function dismissResume(){$('resumeBox').classList.add('hidden');}
 function resetAll(){if(!confirm('¿Borrar todo de esta sesión? (no afecta tus archivos)'))return;
-  state={meta:{project:'',site:'',tech:'',date:'',notes:''},dev:{},order:[],ann:{},hasMapping:false,hasTtap:false,sources:[]};
+  cancelPendingLoads();
+  state={meta:{project:'',site:'',tech:'',date:'',notes:''},dev:{},order:[],ann:{},hasMapping:false,hasTtap:false,sources:[],sasSources:[]};
+  sasRefresh(); $('sasLoadedSummary').classList.add('hidden');
   curLoop=0; $('fLoop').classList.add('hidden');
   try{localStorage.removeItem(STORE_KEY);}catch(e){}renderLoadedTags();showScreen('scLoad');toast('Reiniciado');}
 
@@ -882,6 +888,7 @@ function loadDemo(){
 (function init(){ showScreen('scLoad'); var s=loadLocal(); if(s&&s.dev&&Object.keys(s.dev).length)$('resumeBox').classList.remove('hidden'); })();
 </script>
 
+<script src="sas-ui.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){
