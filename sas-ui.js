@@ -249,6 +249,10 @@
     var epoch = queueEpoch;
     queue = queue.then(async function () {
       if (epoch !== queueEpoch) return;
+      // iOS may disable unknown extensions in a filtered picker. Select freely,
+      // then validate here; never send a binary project to the generic text reader.
+      if (/\.(sdu|xdu)$/i.test(file.name)) throw new Error('La lectura directa de proyectos SDU/XDU todavía no está incorporada en esta versión. Carga su Mapping en MD. La conversión directa disponible es SAS iO.');
+      if (!/\.(sas|pdf|md|txt|csv|prn|text)$/i.test(file.name) && !/^text\//i.test(file.type || '')) throw new Error('Formato no admitido. Selecciona SAS, PDF, MD, TXT, CSV o PRN.');
       if (file.size > 20 * 1024 * 1024) throw new Error('El archivo supera el límite de 20 MB.');
       $('fileLoadStatus').textContent = 'Leyendo ' + file.name + '…';
       if (/\.sas$/i.test(file.name)) {

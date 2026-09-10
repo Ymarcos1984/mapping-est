@@ -1,4 +1,4 @@
-# Mapping EST PWA v7 — carga directa de SAS iO
+# Mapping EST PWA v7.1 — selector de iPhone y SAS iO
 
 Esta copia permite cargar el SAS de iO sin convertirlo antes con BRS. Lee el mapa interno y conserva por separado cada proyecto, panel, loop y dirección.
 
@@ -43,3 +43,10 @@ jszip.min.js permite leer los ZIP SAS localmente. Licencia en LICENSE-JSZip.md.
 sw.js, manifest.webmanifest e iconos permiten instalarla como PWA.
 
 Evidencia detallada de pruebas en la carpeta hermana AUDITORIA_PWA.
+
+## Corrección v7.1: archivos grises en iPhone
+Se eliminó el filtro `accept` del selector principal. La extensión y el contenido se validan después de seleccionar el archivo. El selector ya no restringe los tipos disponibles; la comprobación física del selector de iOS queda pendiente.
+
+SAS tiene lector directo. SDU/XDU se pueden seleccionar, pero esta versión no los convierte: muestra un mensaje explícito y conserva la sesión. Para esos paneles se mantiene la carga de Mapping MD.
+
+Se cambió la versión del caché y del script de carga. Al publicar, reemplazar todos los archivos de la carpeta, incluido sw.js. Abrir la aplicación con conexión, cerrarla y volver a abrirla hasta ver «Versión 7.1». No es necesario borrar la PWA ni los datos. Guardar una copia JSON de la sesión antes de actualizar es recomendable.

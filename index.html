@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f172a">
-<title>Mapping de Terreno · EST · v7 SAS</title>
+<title>Mapping de Terreno · EST · v7.1 SAS</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -157,12 +157,12 @@
       <button class="btn-ghost" onclick="dismissResume()">Ignorar</button>
     </div>
     <div class="hero">
-      <h1>Cargar reporte / mapping</h1><div class="help">Versión 7 · lectura directa de SAS iO</div>
+      <h1>Cargar reporte / mapping</h1><div class="help">Versión 7.1 · selector compatible con iPhone</div>
       <p>Para <b>iO</b>, carga el <b>SAS</b>: incluye el mapa, los T-tap, las etiquetas y los seriales. Para los demás formatos, carga tus reportes y Mapping habituales. Los archivos se procesan en este dispositivo.</p>
       <div class="loadgrid">
         <div><div class="drop" id="dropZone">
           <div class="big">📄 Elegir archivo</div><div class="sub">.sas · .md · .txt · .csv · .pdf<br>(o arrastra aquí)</div>
-          <input type="file" id="fileInput" accept=".sas,.txt,.csv,.pdf,.prn,.md,.text,text/plain,text/markdown,application/pdf" class="hidden" multiple>
+          <input type="file" id="fileInput" class="hidden" multiple>
         </div></div>
         <div><textarea id="pasteBox" placeholder="…o pega aquí el texto del reporte o del loop map"></textarea>
           <div class="row" style="margin-top:8px;">
@@ -888,7 +888,7 @@ function loadDemo(){
 (function init(){ showScreen('scLoad'); var s=loadLocal(); if(s&&s.dev&&Object.keys(s.dev).length)$('resumeBox').classList.remove('hidden'); })();
 </script>
 
-<script src="sas-ui.js"></script>
+<script src="sas-ui.js?v=7.1"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function(){
