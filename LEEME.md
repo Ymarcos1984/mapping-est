@@ -1,52 +1,59 @@
-# Mapping EST PWA v7.1 — selector de iPhone y SAS iO
+# Mapping EST PWA v8.1 — EST3 PDF y SAS iO
 
-Esta copia permite cargar el SAS de iO sin convertirlo antes con BRS. Lee el mapa interno y conserva por separado cada proyecto, panel, loop y dirección.
+La app carga directamente el Mapping PDF vectorial original de EST3, reconstruye las conexiones dibujadas y permite guardar el resultado como MD. Conserva el lector SAS iO de la v7.1 que el usuario comprobó en su iPhone.
 
 ## Uso
-1. Abre la aplicación y selecciona el archivo `.SAS` en «Elegir archivo».
-2. La lista incluye orden, T-taps, etiquetas, mensajes y seriales. Usa el selector para elegir panel y loop.
-3. Si aparece un aviso de Mapping incompleto o padre ausente, revisa ese caso. No se inventan conexiones.
-4. El reporte de serial iO es opcional: cárgalo después del SAS. Solo se vinculan filas con serial completo y dirección coincidentes de forma única. No se reemplaza la topología con el reporte.
-5. Para guardar el MD: menú «⋯» → «Guardar Mapping en MD». Si hay varios loops, elige uno. Cada archivo contiene un solo panel/loop para no mezclar direcciones al usarlo en lectores anteriores.
-6. Puedes seguir marcando estados, añadiendo notas y guardando/cargando la sesión JSON. Volver a cargar el mismo SAS conserva sus anotaciones.
 
-Un SAS diferente se mantiene como otro origen, aunque comparta nombre de obra; no sustituye silenciosamente el anterior. El selector distingue proyecto, panel y loop. Guarda tu sesión antes de «Reiniciar todo» si quieres comenzar otra obra.
+1. Para iO, carga el SAS. El reporte de serial sigue siendo opcional.
+2. Para EST3, carga el Mapping PDF original y el reporte de serial PDF. Se pueden seleccionar juntos o en cualquier orden. Si cargas primero el reporte, queda guardado hasta incorporar su Mapping.
+3. También admite el MD EST3 generado por MD Híbrido cuando contiene un solo controlador/loop y una tabla con direcciones y seriales verificables. Si ese MD no declara el nombre del proyecto, solo se vincula cuando el reporte identifica un proyecto único con ese gabinete/controlador.
+4. Usa el selector de proyecto/controlador/loop. «Solo los del mapping» oculta equipos presentes únicamente en el reporte. Las marcas y notas se conservan al cargar otra vez el mismo archivo.
+5. Menú → Guardar Mapping en MD. Cada descarga contiene un solo controlador/loop, sus conexiones y el serial vigente del reporte cuando esté disponible. La columna Serial Mapping conserva el serial original como referencia. El reporte completo y las anotaciones se conservan en la sesión JSON.
 
-## iPhone y funcionamiento sin conexión
-Publicar todos los archivos de esta carpeta juntos en una dirección HTTPS. Abrir esa dirección en Safari y añadirla a la pantalla de inicio. Después de la primera carga completa, la aplicación y su lector SAS quedan disponibles sin conexión; los SAS se seleccionan desde Archivos.
+## Mapping parcial o de otra revisión
 
-En esta PC también se puede probar mediante un servidor local. Abrir index.html como archivo no instala una PWA ni comprueba su modo sin conexión. Esta entrega todavía requiere prueba en un iPhone físico.
+Es posible trabajar con un Mapping antiguo y un reporte reciente. La app distingue:
 
-## Sesión anterior
-La v7 usa su propio almacenamiento. No borra el de la v6 ni sus cachés.
-- Si ambas se abren desde el mismo sitio, puede aparecer «Copiar sesión anterior v6».
-- Si cambia la dirección del sitio, guarda la sesión JSON desde la v6 y cárgala en la v7.
-- La copia original Mapping_EST_PWA_v6.zip permanece intacta.
+- La coincidencia de proyecto/gabinete/controlador/loop y dirección vincula el equipo. El serial vigente proviene del reporte aunque difiera del Mapping.
+- Dirección con serial diferente: actualiza el serial vigente con el reporte y conserva el original del Mapping como referencia. No cambia su posición, padre, ramas ni T-taps.
+- Equipo solo en el reporte: lo incluye después de los equipos del Mapping, sin inventar una conexión.
+- Equipo del Mapping ausente del reporte del mismo loop: lo señala como «solo en Mapping».
 
-## Alcance de esta entrega
-Implementado: SAS iO → Mapping de la PWA, MD por loop y enlace del reporte iO aportado.
-Los lectores PDF/MD/TXT anteriores permanecen disponibles. Esta versión NO incorpora todavía el motor avanzado de MD Híbrido para reconstruir Mapping PDF EST2/EST3/EST4/QuickStart. Tampoco modifica MD Híbrido ni BRS.
+Los avisos de diferencia no bloquean la carga. Un archivo distinto se conserva como otro origen. Si varios proyectos/revisiones hacen ambiguo un enlace, el reporte queda pendiente. El último reporte cargado sustituye al anterior para los loops que contiene; los demás loops conservan su reporte. Esta prioridad aplica también al reporte iO cuando el panel/loop/dirección se identifican de forma única.
 
-## Comprobaciones realizadas
-- Comparación de todos los campos y conexiones con el lector BRS suministrado: cinco SAS, 1.157 dispositivos, 11 loops.
-- Saratoga: 65 dispositivos y 3 T-taps; su reporte PDF vincula 65 filas.
-- Exportación MD: 65 seriales y relaciones de padre comprobados con el lector de la PWA anterior.
-- Multi-loop, anotaciones, reimportación, sesiones JSON, copia de sesión v6 y funcionamiento sin conexión.
-- Rechazo sin cambios de SAS incompleto; duplicados, ciclos, XML inválido, entidades y números inválidos.
-- Exportación PDF conserva el proyecto y loop seleccionados.
-- Navegador Chromium local con pantalla móvil. Sin peticiones a servidores externos en las pruebas.
-- Pendiente: prueba real en Safari/iPhone y publicación en el alojamiento del usuario.
+## Instalar o actualizar en iPhone
 
-## Archivos
-index.html, sas-mapping.js y sas-ui.js contienen la aplicación y la nueva función.
-jszip.min.js permite leer los ZIP SAS localmente. Licencia en LICENSE-JSZip.md.
-sw.js, manifest.webmanifest e iconos permiten instalarla como PWA.
+Publica todos los archivos de esta carpeta juntos en el alojamiento HTTPS que utilizas para la PWA. Abre con conexión, cierra y vuelve a abrir hasta ver «Versión 8.1». Después de la primera carga completa quedan disponibles los lectores PDF/MD/SAS sin conexión; los documentos deben estar descargados en Archivos.
 
-Evidencia detallada de pruebas en la carpeta hermana AUDITORIA_PWA.
+Esta entrega pasó pruebas en Chromium con tamaño de pantalla móvil y sin conexión. La v8.1 todavía necesita tu comprobación en Safari/iPhone físico; la confirmación anterior corresponde a la v7.1.
 
-## Corrección v7.1: archivos grises en iPhone
-Se eliminó el filtro `accept` del selector principal. La extensión y el contenido se validan después de seleccionar el archivo. El selector ya no restringe los tipos disponibles; la comprobación física del selector de iOS queda pendiente.
+## Sesiones y originales
 
-SAS tiene lector directo. SDU/XDU se pueden seleccionar, pero esta versión no los convierte: muestra un mensaje explícito y conserva la sesión. Para esos paneles se mantiene la carga de Mapping MD.
+La v8 utiliza un almacenamiento distinto. En la misma dirección web puede copiar la sesión v7 al pulsar Reanudar, conservando el original. Si cambia la dirección, guarda la sesión JSON en la app anterior y cárgala en esta. Reiniciar la v8 vacía su propia sesión.
 
-Se cambió la versión del caché y del script de carga. Al publicar, reemplazar todos los archivos de la carpeta, incluido sw.js. Abrir la aplicación con conexión, cerrarla y volver a abrirla hasta ver «Versión 7.1». No es necesario borrar la PWA ni los datos. Guardar una copia JSON de la sesión antes de actualizar es recomendable.
+Las carpetas y ZIP originales v6/v7/v7.1, MD Híbrido, BRS y los documentos proporcionados no se modificaron.
+
+## Validación de esta entrega
+
+- Murano PDF: 79 dispositivos, 77 conexiones y 1 T-tap, iguales al conversor de referencia.
+- Offizzina PDF: 149 dispositivos, 148 conexiones y 2 T-taps, iguales al conversor de referencia.
+- Reportes: Murano 91 filas (incluidas etiquetas sin guion bajo), Offizzina 424 filas y Beachclub 324 filas. Conserva gabinete/controlador/loop y separa columnas aunque la ubicación sea larga.
+- Beachclub: el ZIP aportado contiene MD y reporte PDF, sin el PDF original del Mapping. Su MD tiene 146 equipos; 96 seriales coinciden por dirección, 48 difieren y 2 direcciones no aparecen en el reporte. Los 144 equipos presentes usan el serial del reporte; se comprobó que los 146 conservan exactamente el orden de la tabla MD. Una comparación independiente con PyMuPDF confirmó estos resultados. El MD declara 2 T-taps y su tabla deja 97 raíces; no se certifican las conexiones del plano original sin ese PDF.
+- Regresión iO: cinco SAS, 1.157 dispositivos y 11 loops; reporte Saratoga, MD, sesiones, anotaciones y modo sin conexión.
+- Rechazo de PDF con páginas duplicadas o giradas sin alterar la sesión anterior. Separación de controladores con el mismo número de loop.
+
+## Límites
+
+El nuevo lector vectorial es para EST3 y los diseños de PDF comprobados. No añade reconstrucción avanzada de EST2, EST4 o QuickStart; siguen disponibles sus lectores anteriores. SDU/XDU pueden seleccionarse, pero no se convierten directamente. Para esos archivos usa el Mapping exportado. Un PDF escaneado requiere conversión/OCR externo.
+
+La app limita los archivos a 20 MB, los PDF a 200 páginas y el análisis geométrico EST3 a 1.500 dispositivos por controlador/loop. No sube los documentos a servidores.
+
+## Archivos principales
+
+index.html, sas-mapping.js, sas-ui.js, est3-mapping.js y est3-report.js. JSZip y PDF.js permanecen incluidos localmente; JSZip conserva su licencia adjunta y PDF.js su licencia incrustada. sw.js, manifest.webmanifest e iconos proporcionan la instalación y caché.
+
+Evidencia y pruebas reproducibles en la carpeta hermana AUDITORIA_PWA.
+
+## Verificación v8.1
+
+36 comprobaciones automáticas superadas: 16 EST3 y 20 iO/regresión. Incluyen prioridad del último reporte, serial cambiado al reimportar SAS, orden exacto Beachclub, exportación MD con serial vigente y referencia original, y actualización de sesiones guardadas en v8.

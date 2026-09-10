@@ -123,7 +123,7 @@
     return { id, family: 'io', obra: obra || 'PROYECTO iO', filename, version, loops, warnings };
   }
 
-  function scope(source, loop) { return 'sas:' + source.id + ':p' + loop.panel + ':l' + loop.loopnum; }
+  function scope(source, loop) { return source.family === 'est3' ? 'est3:' + source.id + ':g' + loop.scopeId : 'sas:' + source.id + ':p' + loop.panel + ':l' + loop.loopnum; }
   function key(source, loop, address) { return scope(source, loop) + ':a' + address; }
 
   function flatten(source) {
@@ -135,7 +135,9 @@
         result.push({
           key: key(source, loop, address), sasId: source.id, scope: scope(source, loop), scopeLabel: source.obra + ' · ' + loop.title,
           panel: loop.panel, loopnum: loop.loopnum, address: String(address), label: d.label, location: d.location,
-          model: d.model, mtype: d.model, serial: d.serial, mserial: d.serial,
+          model: d.model, mtype: d.model, serial: source.family === 'est3' ? '' : d.serial, mserial: d.serial,
+          sourceFamily: source.family, serialPartial: source.family === 'est3', type: d.type || '', pers: d.base || '',
+          importedReportSerial: d.reportSerial || '',
           parent: d.next && d.next !== address && tree.byAddress.has(d.next) ? key(source, loop, d.next) : null,
           children: tree.children.get(address).length, depth: tree.depth.get(address), pos: i + 1, mapOrder: i,
           inMap: loop.mapped, mappingReview: !loop.mapped
@@ -149,15 +151,17 @@
     return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/\|/g, '&#124;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\r\n]+/g, ' ');
   }
 
-  function markdown(source, loop) {
+  function markdown(source, loop, records) {
     const tree = buildTree(loop.devices, loop.title, []);
-    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: PROYECTO IO (mapa leído de los datos, sin OCR)',
-      'mapping_variante: proyecto-io', 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
-      'panel: ' + loop.panel, 'loop: ' + loop.loopnum, 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v7 SAS', '---', '',
+    const est3 = source.family === 'est3';
+    const lines = ['---', 'origen: ' + JSON.stringify(source.filename), 'tipo: ' + (est3 ? 'MAPPING EST3 PDF (conexiones del dibujo vectorial)' : 'PROYECTO IO (mapa leído de los datos, sin OCR)'),
+      'mapping_variante: ' + (est3 ? 'est3-vector' : 'proyecto-io'), 'mapping_dispositivos: ' + loop.devices.length, 'mapping_t_taps: ' + tree.taps,
+      'panel: ' + loop.panel, 'loop: ' + loop.loopnum, 'mapping_declarado: ' + loop.mapped, 'generador: Mapping EST PWA v8.1 EST3', '---', '',
       '# ' + cell(source.obra), '', '## ' + loop.title, ''];
-    source.warnings.forEach(w => lines.push('> REVISAR: ' + cell(w), ''));
-    lines.push('| Ramal | Posición | Proviene de | Dirección | Etiqueta | Modelo | Base | Serial | Página | Mensaje |',
-      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    source.warnings.filter(w => !records || !/últimos 4 dígitos/.test(w)).forEach(w => lines.push('> REVISAR: ' + cell(w), ''));
+    if (records) lines.push('El orden y las conexiones provienen del Mapping. La columna Serial usa el reporte cuando está disponible; Serial Mapping conserva la referencia original.', '');
+    lines.push('| Ramal | Posición | Proviene de | Dirección | Etiqueta | Modelo | Base | Serial | Página | Mensaje | Serial Mapping |',
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     const branchByAddress = new Map(), posByBranch = new Map(); let branchCount = 0;
     tree.order.forEach(function (address) {
       const d = tree.byAddress.get(address);
@@ -166,7 +170,8 @@
       branchByAddress.set(address, branch);
       const position = (posByBranch.get(branch) || 0) + 1; posByBranch.set(branch, position);
       const parent = isChild ? 'dirección ' + d.next : loop.title;
-      lines.push('| ' + ['Ramal ' + branch, position, parent, d.addr, d.label || 'no determinado', d.model || 'no determinado', '', d.serial || 'no determinado', '', d.location].map(cell).join(' | ') + ' |');
+      const current = records && records[key(source, loop, address)];
+      lines.push('| ' + ['Ramal ' + branch, position, parent, d.addr, d.label || 'no determinado', d.model || 'no determinado', d.base || '', current && current.serial || d.serial || 'no determinado', d.page || '', current && current.location || d.location, d.serial].map(cell).join(' | ') + ' |');
     });
     lines.push('', 'Las direcciones de este documento pertenecen únicamente a ' + loop.title + '.', '');
     return lines.join('\n');

@@ -1,6 +1,6 @@
 const PREFIX = 'mapping-sas:' + self.registration.scope + ':';
-const CACHE = PREFIX + 'v7-1-iphone-picker';
-const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './jszip.min.js', './sas-mapping.js', './sas-ui.js?v=7.1'];
+const CACHE = PREFIX + 'v8-1-report-serial';
+const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './jszip.min.js', './sas-mapping.js', './est3-mapping.js', './est3-report.js', './sas-ui.js?v=8.1'];
 self.addEventListener('install', function (event) {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
